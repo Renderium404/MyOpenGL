@@ -1,0 +1,32 @@
+                     CPU
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+        ▼             ▼             ▼
+   vertices[]     QMatrix4x4       PNG
+        │             │             │
+        ▼             │             ▼
+       VBO            │           QImage
+        │             │             │
+        │             │             ▼
+        │             │          Texture
+        │             │             │
+        ▼             ▼             │
+       VAO         Uniform          │
+        │             │             │
+        └──────┬──────┘             │
+               ▼                    │
+         Vertex Shader              │
+               │                    │
+               ▼                    │
+         Rasterization              │
+               │                    │
+               └──────────┬─────────┘
+                          ▼
+                   Fragment Shader
+                          │
+                          ▼
+                    Framebuffer
+                          │
+                          ▼
+                     QOpenGLWidget
