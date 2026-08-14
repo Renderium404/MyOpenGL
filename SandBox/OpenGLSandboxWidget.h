@@ -1,96 +1,96 @@
 #ifndef OPENGLSANDBOXWIDGET_H
 #define OPENGLSANDBOXWIDGET_H
 
-#include <QOpenGLWidget>
-#include <QPoint>
+#include "Viewer/OpenGLViewerWidget.h"
 
+#include "ModelingGpuMesh.h"
+#include "ModelingGpuMeshAdapter.h"
+#include "ModelingGpuMeshSync.h"
+#include "ModelingGpuMeshWorker.h"
 #include "ModelingMesh.h"
 #include "ModelingMeshAdapter.h"
 
-#include "Camera/CameraManager.h"
-#include "Core/ResourceManager.h"
-#include "Light/LightManager.h"
-#include "Material/MaterialManager.h"
-#include "Render/RenderContext.h"
-#include "Render/Renderer.h"
-
-class CoordinateSystemResource;
+class ExternalGpuMeshResource;
 class ExternalMeshResource;
-class GridPlaneResource;
+class Light;
 class Material;
 class MeshResource;
+class MeshResourcePrimitivePickSource;
+class PrimitivePickSource;
+class QOffscreenSurface;
+class QOpenGLContext;
+class RenderItem;
 class TextureResource;
-class ViewNavigationResource;
 
-class QKeyEvent;
-class QMouseEvent;
-class QWheelEvent;
-
-/// OpenGL 可视化调试窗口。
-/// 同时验证 Owned Resource 和外部建模 Mesh 的自动 Revision GPU Synchronization。
-class OpenGLSandboxWidget : public QOpenGLWidget
+/// OpenGL 框架功能验证窗口。
+/// 只保留 SandBox 测试模型、External CPU/GPU A/B 数据路径、Worker/Fence 和故障注入；
+/// 通用 Viewer 生命周期、Camera、辅助显示、Picking 与 Selection 由 OpenGLViewerWidget 提供。
+class OpenGLSandboxWidget : public OpenGLViewerWidget
 {
 public:
     explicit OpenGLSandboxWidget(QWidget* parent = 0);
     ~OpenGLSandboxWidget() override;
 
 protected:
-    /// OpenGL 生命周期
-    void initializeGL() override;
-    void resizeGL(int width, int height) override;
-    void paintGL() override;
-
-    /// 输入
-    void mousePressEvent(QMouseEvent* event) override;
-    void mouseMoveEvent(QMouseEvent* event) override;
-    void wheelEvent(QWheelEvent* event) override;
-    void keyPressEvent(QKeyEvent* event) override;
+    /// Viewer 扩展
+    bool initializeViewerContentGL(QOpenGLFunctions_3_3_Core* gl) override;
+    void buildViewerContentItems() override;
+    bool handleViewerKeyPress(QKeyEvent* event) override;
+    void viewerStateChanged() override;
+    void afterViewerGLReleased() override;
 
 private:
-    /// Scene 创建
-    void buildScene();
+    /// SandBox Scene 创建
+    void buildSandboxContent();
     void buildExternalMesh();
+    void updateExternalRenderItemBounds(); // 根据两条 External Path 当前一致的 ModelingMesh 更新两个 Scene Item 的 Local Bounds。
+    bool initializeExternalGpuMesh();       // 创建 Shared Context Worker，在独立线程初始化 External GPU Storage。
     MeshResource* createCube();
-    MeshResource* createCameraTargetMarker();
     TextureResource* createCheckerTexture();
 
-    /// Scene 状态
-    void resetCamera();
+    /// External Mesh A/B Test
+    bool applyMatchedContentChange();                  // CPU / GPU Source 同时执行完全相同的局部建模操作。
+    bool rebuildMatchedExternalMeshes();               // 根据当前 Width / Topology 状态重建两份相同 ModelingMesh。
+    bool verifyModelingMeshConsistency(const char* operation) const; // 在进入两种 MyOpenGL 接入路径前验证 Modeling 数据完全一致。
+    bool syncExternalGpuWorker(const char* operation); // 请求 Worker Context 更新 External GPU Storage，并等待 Write Fence 发布。
+    bool replaceExternalGpuBuffers();                  // 不修改 ModelingMesh，只替换 External GPU Storage 的整套 VBO / EBO。
+
+    /// SandBox 状态
     void updateWindowTitle();
 
-    /// GPU 生命周期
-    void releaseGL();
+    /// External GPU 生命周期
+    void shutdownExternalGpuWorker(); // 停止 Worker，并在 GUI Thread 销毁 Shared Context / Offscreen Surface。
 
 private:
-    // 外部 Modeling 数据和 Adapter 必须比 ResourceManager 活得更久，因为 ExternalMeshResource 只保存借用指针。
-    ModelingMesh m_modelingMesh;                     // 模拟完全独立的建模库 Mesh。
-    ModelingMeshAdapter m_modelingMeshAdapter;       // Application 层 ModelingMesh → MyOpenGL Adapter。
+    // CPU Path 和 GPU Path 各自拥有一份 ModelingMesh，但数据结构、初始数据和所有建模操作必须完全相同。
+    ModelingMesh m_modelingMesh;                       // External CPU Path 的 ModelingMesh Source。
+    ModelingMeshAdapter m_modelingMeshAdapter;         // ModelingMesh → ExternalMeshResource Adapter。
+    ModelingMesh m_modelingGpuSourceMesh;              // External GPU Path 的同类型 ModelingMesh Source。
+    ModelingGpuMesh m_modelingGpuMesh;                 // 只负责把 m_modelingGpuSourceMesh 同步到外部 VBO / EBO。
+    ModelingGpuMeshSync m_modelingGpuMeshSync;         // Shared Writer Context 与 Renderer Context 的双向 GPU Fence。
+    ModelingGpuMeshAdapter m_modelingGpuMeshAdapter;   // GPU Storage → ExternalGpuMeshResource Adapter。
+    ModelingGpuMeshWorker m_modelingGpuMeshWorker;     // 独立线程中的 External GPU Writer。
+    QOpenGLContext* m_externalGpuContext;              // Worker Thread 使用的 Shared OpenGL Context。
+    QOffscreenSurface* m_externalGpuSurface;           // Worker Context 使用的 Offscreen Surface，由 GUI Thread 创建/销毁。
 
-    RenderContext m_renderContext;                   // 当前 Widget OpenGL 3.3 Core 函数访问器。
-    Renderer m_renderer;                             // 当前 SandBox Renderer。
-    ResourceManager m_resourceManager;               // 当前 Scene GPU Resources。
-    CameraManager m_cameraManager;                   // 当前 Scene Cameras。
-    LightManager m_lightManager;                     // 当前 Scene Lights。
-    MaterialManager m_materialManager;               // 当前 Scene Materials。
+    MeshResource* m_cube;                              // MyOpenGL Owned Lit Cube。
+    ExternalMeshResource* m_externalMesh;              // External CPU ModelingMesh 对应的 MyOpenGL GPU Cache。
+    ExternalGpuMeshResource* m_externalGpuMesh;        // External GPU Storage 对应的 MyOpenGL VAO Resource。
+    TextureResource* m_cubeTexture;                    // 测试 Diffuse Texture。
+    Material* m_cubeMaterial;                          // 三种 Mesh 共用的 Lit Material。
+    Light* m_sun;                                      // 主方向光。
+    ResourceId m_cubeTextureId;                        // Diffuse Texture ResourceId。
 
-    GridPlaneResource* m_grid;                       // XZ 世界参考网格。
-    CoordinateSystemResource* m_axes;                // RGB 世界坐标轴。
-    ViewNavigationResource* m_viewNavigation;        // 右上角方向导航几何。
-    MeshResource* m_cameraTargetMarker;              // Camera Orbit Target 黄色十字。
-    MeshResource* m_cube;                            // MyOpenGL Owned Lit Cube。
-    ExternalMeshResource* m_externalMesh;            // 外部 ModelingMesh 对应的 GPU Cache。
-    TextureResource* m_cubeTexture;                  // 测试 Diffuse Texture。
-    Material* m_cubeMaterial;                        // Cube 和 External Mesh 共用的 Lit Material。
-    Light* m_sun;                                    // 主方向光。
-    ResourceId m_cubeTextureId;                      // Diffuse Texture ResourceId。
+    RenderItem* m_cubeItem;                            // MyOpenGL Owned Cube Scene Item。
+    RenderItem* m_externalMeshItem;                    // External CPU Mesh Scene Item。
+    RenderItem* m_externalGpuMeshItem;                 // External GPU Mesh Scene Item。
 
-    QPoint m_lastMousePosition;                      // 上一次鼠标位置。
-    bool m_glReady;                                  // 当前 OpenGL Scene 是否完整初始化。
-    bool m_showGrid;                                 // 是否显示 Grid。
-    bool m_showAxes;                                 // 是否显示世界坐标轴。
-    bool m_showViewNavigation;                       // 是否显示 View Navigation。
-    bool m_showCameraTarget;                         // 是否显示 Camera Target。
-    bool m_externalWide;                             // 外部 Mesh Structure 测试用宽度状态。
+    MeshResourcePrimitivePickSource* m_cubePrimitivePicker; // Owned Cube CPU Geometry Picker，SandBox 拥有 Adapter。
+    PrimitivePickSource* m_externalCpuPrimitivePicker;      // External CPU ModelingMesh Primitive Picker，SandBox 拥有 Adapter。
+    PrimitivePickSource* m_externalGpuPrimitivePicker;      // External GPU Path 使用同源 ModelingMesh CPU Picker，不做 GPU Readback。
+
+    bool m_externalWide;                               // 两条 External Path 当前是否使用 Wide Geometry。
+    bool m_externalSplit;                              // 两条 External Path 当前是否使用 Split Quad Topology。
 };
 
 #endif // OPENGLSANDBOXWIDGET_H

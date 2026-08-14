@@ -8,6 +8,8 @@
 #include "Render/RenderContext.h"
 #include "Resource/RenderableMesh.h"
 #include "Resource/TextureResource.h"
+#include "Scene/RenderItem.h"
+#include "Scene/Scene.h"
 
 #include <QDebug>
 #include <QMatrix3x3>
@@ -314,6 +316,11 @@ bool Renderer::drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4&
     if (gl == 0)
         return false;
 
+    // prepareDrawGL() 之后不再存在普通参数验证的 Early Return，
+    // 因此成功开始的 External GPU Read Transaction 一定会和 finishDrawGL() 成对。
+    if (!mesh->prepareDrawGL(gl))
+        return false;
+
     if (depthTest)
         gl->glEnable(GL_DEPTH_TEST);
     else
@@ -328,13 +335,16 @@ bool Renderer::drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4&
     gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
     gl->glBindVertexArray(0);
 
+    // External GPU Mesh 可以在 Draw 提交后发布 Renderer 已完成读取的 GPU Fence。
+    mesh->finishDrawGL(gl);
+
     if (!depthTest)
         gl->glEnable(GL_DEPTH_TEST);
 
     return true;
 }
 
-bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model)
+bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
 {
     if (!m_frameActive)
     {
@@ -398,6 +408,8 @@ bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material,
     bool useTexture = false;
     const TextureResource* texture = 0;
 
+    // 所有可能失败的 Material / Texture 验证都必须发生在 prepareDrawGL() 之前。
+    // 否则 External GPU Read Transaction 已开始后发生 Early Return，会遗漏对应的 finishDrawGL()。
     if (material->hasDiffuseTexture())
     {
         const Resource* resource = resourceManager->get(material->diffuseTextureId());
@@ -424,6 +436,11 @@ bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material,
 
         useTexture = true;
     }
+
+    // 从这里开始不再存在普通验证 Early Return。
+    // External GPU Mesh 可以在这里等待另一个共享 Context 完成对 VBO / EBO 的写入。
+    if (!mesh->prepareDrawGL(gl))
+        return false;
 
     m_litProgram.bind(gl);
 
@@ -452,13 +469,92 @@ bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material,
         gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
     }
 
-    gl->glEnable(GL_DEPTH_TEST);
+    if (depthTest)
+        gl->glEnable(GL_DEPTH_TEST);
+    else
+        gl->glDisable(GL_DEPTH_TEST);
+
     gl->glBindVertexArray(mesh->vao());
     gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
     gl->glBindVertexArray(0);
 
+    // Draw 已进入当前 Renderer Command Stream，可以结束 External GPU Read Transaction。
+    mesh->finishDrawGL(gl);
+
     if (useTexture)
         gl->glBindTexture(GL_TEXTURE_2D, 0);
+
+    if (!depthTest)
+        gl->glEnable(GL_DEPTH_TEST);
+
+    return true;
+}
+
+bool Renderer::drawItem(const RenderItem* item, const ResourceManager* resourceManager, const LightManager* lightManager)
+{
+    if (!m_frameActive)
+    {
+        qWarning() << "Renderer drawItem failed: beginFrame() has not been called.";
+        return false;
+    }
+
+    if (item == 0)
+    {
+        qWarning() << "Renderer drawItem failed: item is null.";
+        return false;
+    }
+
+    if (!item->isVisible())
+        return true;
+
+    const RenderableMesh* mesh = item->mesh();
+    const Material* material = item->material();
+
+    if (mesh == 0 || material == 0)
+    {
+        qWarning() << "Renderer drawItem failed: item requires Mesh and Material:" << item->name();
+        return false;
+    }
+
+    const QMatrix4x4 model = item->transform().matrix();
+
+    switch (material->type())
+    {
+    case MaterialTypeVertexColor:
+        return drawVertexColorMesh(mesh, model, item->depthTestEnabled());
+
+    case MaterialTypeLit:
+        return drawLitMesh(mesh, material, resourceManager, lightManager, model, item->depthTestEnabled());
+    }
+
+    qWarning() << "Renderer drawItem failed: unsupported Material type:" << item->name();
+    return false;
+}
+
+bool Renderer::drawScene(const Scene* scene, const ResourceManager* resourceManager, const LightManager* lightManager)
+{
+    if (!m_frameActive)
+    {
+        qWarning() << "Renderer drawScene failed: beginFrame() has not been called.";
+        return false;
+    }
+
+    if (scene == 0 || resourceManager == 0 || lightManager == 0)
+    {
+        qWarning() << "Renderer drawScene failed: invalid argument.";
+        return false;
+    }
+
+    for (int i = 0; i < scene->itemCount(); ++i)
+    {
+        const RenderItem* item = scene->item(i);
+
+        if (item != 0 && !drawItem(item, resourceManager, lightManager))
+        {
+            qWarning() << "Renderer drawScene failed while drawing item:" << item->name();
+            return false;
+        }
+    }
 
     return true;
 }
@@ -489,16 +585,20 @@ bool Renderer::drawViewNavigation(const RenderableMesh* mesh, const Camera* came
         return false;
     }
 
+    const int gizmoSize = 128;  // View Navigation 固定使用 128 × 128 Pixel。
+    const int gizmoMargin = 16; // 与窗口右上边缘保留 16 Pixel 间距。
+
+    // 当前 Viewport 太小时根本不会发生 Draw，因此没有必要开始 GPU Read Transaction。
+    if (m_viewportWidth < gizmoSize + gizmoMargin * 2 || m_viewportHeight < gizmoSize + gizmoMargin * 2)
+        return true;
+
     QOpenGLFunctions_3_3_Core* gl = m_context->gl();
 
     if (gl == 0)
         return false;
 
-    const int gizmoSize = 128;       // View Navigation 固定使用 128 × 128 Pixel。
-    const int gizmoMargin = 16;      // 与窗口右上边缘保留 16 Pixel 间距。
-
-    if (m_viewportWidth < gizmoSize + gizmoMargin * 2 || m_viewportHeight < gizmoSize + gizmoMargin * 2)
-        return true;
+    if (!mesh->prepareDrawGL(gl))
+        return false;
 
     const float gizmoCameraDistance = 3.0f; // Gizmo Camera 只使用主 Camera 朝向，固定距离避免受 Zoom 影响。
     const QVector3D gizmoEye = -camera->forward() * gizmoCameraDistance;
@@ -526,6 +626,8 @@ bool Renderer::drawViewNavigation(const RenderableMesh* mesh, const Camera* came
     gl->glBindVertexArray(mesh->vao());
     gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
     gl->glBindVertexArray(0);
+
+    mesh->finishDrawGL(gl);
 
     gl->glViewport(0, 0, m_viewportWidth, m_viewportHeight);
     gl->glEnable(GL_DEPTH_TEST);

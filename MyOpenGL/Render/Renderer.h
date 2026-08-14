@@ -12,10 +12,12 @@ class LightManager;
 class Material;
 class RenderableMesh;
 class RenderContext;
+class RenderItem;
 class ResourceManager;
+class Scene;
 
 /// 基础 Renderer。
-/// 提供 VertexColor 和 Lit 两条基础管线，只依赖 RenderableMesh 的 GPU 绘制接口。
+/// 提供 VertexColor 和 Lit 两条基础管线，并在其上支持扁平 Scene / RenderItem 绘制。
 class Renderer
 {
 public:
@@ -33,7 +35,9 @@ public:
     /// Frame
     bool beginFrame(const Camera* camera, int viewportWidth, int viewportHeight); // 设置主 Viewport、清屏并保存当前 Camera 状态。
     bool drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4& model, bool depthTest = true); // 使用 position + color 管线绘制网格。
-    bool drawLitMesh(const RenderableMesh* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model); // 使用 position + normal + uv 光照管线绘制网格。
+    bool drawLitMesh(const RenderableMesh* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest = true); // 使用 position + normal + uv 光照管线绘制网格。
+    bool drawItem(const RenderItem* item, const ResourceManager* resourceManager, const LightManager* lightManager); // 根据 Item Material 类型选择基础绘制管线。
+    bool drawScene(const Scene* scene, const ResourceManager* resourceManager, const LightManager* lightManager); // 按 Scene Item 创建顺序绘制全部可见 Item。
     bool drawViewNavigation(const RenderableMesh* mesh, const Camera* camera); // 在右上角绘制只反映 Camera 朝向的 RGB 导航器。
     void endFrame();
 

@@ -46,6 +46,9 @@ public:
     float distanceToTarget() const;
     bool setView(const QVector3D& position, const QVector3D& target, const QVector3D& up); // 同时设置观察状态并检查方向是否合法。
 
+    /// Picking Ray
+    bool screenPointToRay(int screenX, int screenY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const; // 将 Widget 像素坐标转换为当前 Camera 的世界空间 Picking Ray。
+
     /// 透视投影
     float fieldOfView() const;
     bool setPerspective(float fieldOfView, float nearPlane, float farPlane); // 设置垂直 FOV、Near 和 Far，并切换到透视投影。

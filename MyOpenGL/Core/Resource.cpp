@@ -87,7 +87,21 @@ bool Resource::initializeGL(QOpenGLFunctions_3_3_Core* gl)
     }
 
     if (!onInitializeGL(gl))
+    {
+        // onInitializeGL() 可能已经成功创建了一部分 VAO / VBO / Texture 等 GPU Object。
+        // Resource 此时还不能标记为 Initialized，因此必须立即调用 onReleaseGL() 执行事务回滚，
+        // 否则 ResourceManager 后续会因为 isInitialized()==false 而无法发现这些半初始化 GPU 状态。
+        onReleaseGL(gl);
+
+        m_initialized = false;
+
+        // GPU Cache 当前不存在，因此 CPU 数据仍然需要一次完整初始化。
+        // 下次 syncResource() 会再次进入 initializeGL()，FullDirty 同时保持调试语义正确。
+        m_dirtyState = ResourceFullDirty;
+
+        qWarning() << "Resource initializeGL failed: partial GPU state rolled back:" << m_name;
         return false;
+    }
 
     m_initialized = true;
     m_dirtyState = ResourceClean;

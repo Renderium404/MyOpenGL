@@ -662,6 +662,14 @@ void ExternalMeshResource::recordFullSync(std::size_t uploadedBytes, unsigned lo
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
     m_syncStatistics.lastSyncType = ExternalMeshSyncFull;
+
+    qDebug() << "ExternalMeshResource Full GPU Sync:"
+             << name()
+             << "StructureRevision=" << static_cast<qulonglong>(m_structureRevision)
+             << "ContentRevision=" << static_cast<qulonglong>(m_contentRevision)
+             << "UploadedBytes=" << static_cast<qulonglong>(uploadedBytes)
+             << "VertexCalls=" << static_cast<qulonglong>(vertexCalls)
+             << "IndexCalls=" << static_cast<qulonglong>(indexCalls);
 }
 
 void ExternalMeshResource::recordPartialSync(std::size_t uploadedBytes, unsigned long long vertexCalls, unsigned long long indexCalls)
@@ -672,6 +680,13 @@ void ExternalMeshResource::recordPartialSync(std::size_t uploadedBytes, unsigned
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
     m_syncStatistics.lastSyncType = ExternalMeshSyncPartial;
+
+    qDebug() << "ExternalMeshResource Partial GPU Sync:"
+             << name()
+             << "ContentRevision=" << static_cast<qulonglong>(m_contentRevision)
+             << "UploadedBytes=" << static_cast<qulonglong>(uploadedBytes)
+             << "VertexCalls=" << static_cast<qulonglong>(vertexCalls)
+             << "IndexCalls=" << static_cast<qulonglong>(indexCalls);
 }
 
 /// 内部辅助

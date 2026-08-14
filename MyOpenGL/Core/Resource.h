@@ -64,7 +64,7 @@ public:
     bool prepareSync(); // 在 ResourceManager 判断 DirtyState 前刷新外部依赖状态。
 
     /// GPU 生命周期
-    bool initializeGL(QOpenGLFunctions_3_3_Core* gl);
+    bool initializeGL(QOpenGLFunctions_3_3_Core* gl); // 初始化失败时自动调用 onReleaseGL() 回滚已经创建的部分 GPU 状态。
     bool updateFullGL(QOpenGLFunctions_3_3_Core* gl);
     bool updatePartialGL(QOpenGLFunctions_3_3_Core* gl);
     bool releaseGL(QOpenGLFunctions_3_3_Core* gl);
@@ -74,10 +74,10 @@ protected:
 
     /// GPU 实现
     virtual bool onPrepareSync(); // 默认无操作；外部数据 Resource 可在这里检查 Revision。
-    virtual bool onInitializeGL(QOpenGLFunctions_3_3_Core* gl) = 0;
+    virtual bool onInitializeGL(QOpenGLFunctions_3_3_Core* gl) = 0; // 失败时 Resource 基类会立即调用 onReleaseGL() 执行事务回滚。
     virtual bool onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl) = 0;
     virtual bool onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl) = 0;
-    virtual void onReleaseGL(QOpenGLFunctions_3_3_Core* gl) = 0;
+    virtual void onReleaseGL(QOpenGLFunctions_3_3_Core* gl) = 0; // 必须能够安全释放完整或部分创建的 GPU 状态。
 
 private:
     friend class ResourceManager;
@@ -90,7 +90,7 @@ private:
     ResourceType m_type;                     // Resource 语义类型。
     ResourceUpdatePolicy m_updatePolicy;     // CPU 数据典型更新频率。
     ResourceDirtyState m_dirtyState;         // 当前 CPU 相对于 GPU Cache 的同步状态。
-    bool m_initialized;                      // 当前 GPU 对象是否已经创建。
+    bool m_initialized;                      // 当前 GPU 对象是否已经完整创建。
 };
 
 #endif // RESOURCE_H

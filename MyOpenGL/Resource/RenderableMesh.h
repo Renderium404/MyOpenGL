@@ -5,19 +5,19 @@
 #include <QString>
 
 /// Mesh 图元类型。
-/// 描述 Renderer 应如何解释当前 MeshResource 的索引数据。
+/// 描述 Renderer 应使用哪种 OpenGL Primitive 绘制当前网格。
 enum MeshPrimitiveType
 {
-    MeshPrimitiveTriangles,    // 每三个索引组成一个独立三角形。
-    MeshPrimitiveLines,        // 每两个索引组成一条独立线段。
-    MeshPrimitiveLineStrip     // 相邻索引连续组成折线。
+    MeshPrimitiveTriangles,
+    MeshPrimitiveLines,
+    MeshPrimitiveLineStrip
 };
 
 /// 获取 Mesh 图元类型的调试名称。
 const char* meshPrimitiveTypeName(MeshPrimitiveType type);
 
-/// Renderer 所需的最小 Mesh 接口。
-/// 不规定 CPU 网格如何存储，只暴露已经建立好的 GPU Mesh 状态。
+/// Renderer 所需的最小网格接口。
+/// 不规定 CPU 网格如何存储，只暴露已经同步到 GPU 的绘制状态。
 class RenderableMesh
 {
 public:
@@ -37,6 +37,10 @@ public:
 
     /// Vertex Layout
     virtual bool hasAttribute(GLuint location, GLint componentCount) const = 0;
+
+    /// 绘制同步
+    virtual bool prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const; // Draw 前准备数据可见性；普通 Mesh 默认无需额外同步。
+    virtual void finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const;  // Draw 提交后结束本次读取；普通 Mesh 默认无需额外同步。
 };
 
 #endif // RENDERABLEMESH_H

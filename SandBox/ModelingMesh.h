@@ -53,8 +53,9 @@ public:
     ModelingMesh();
 
     /// 建模操作
-    void buildQuad(double halfWidth);            // 重建整个 Mesh，并递增 Structure Revision。
-    bool raiseVertex(int vertexIndex, double y); // 修改已有 Position，只递增 Content Revision。
+    void buildQuad(double halfWidth);             // 构建 4 Vertex / 6 Index Quad，并递增 Structure Revision。
+    void buildSplitQuad(double halfWidth);        // 构建相同外轮廓的 6 Vertex / 12 Index Split Quad，并递增 Structure Revision。
+    bool raiseVertex(int vertexIndex, double y);  // 修改已有 Position，只递增 Content Revision。
 
     /// Mesh 数据
     const std::vector<ModelingPoint>& positions() const;

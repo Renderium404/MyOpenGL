@@ -1,6 +1,8 @@
 #include "Camera.h"
 
 #include <QDebug>
+#include <QVector4D>
+#include <QtMath>
 
 const char* cameraProjectionTypeName(CameraProjectionType type)
 {
@@ -111,6 +113,64 @@ bool Camera::setView(const QVector3D& position, const QVector3D& target, const Q
     m_position = position;
     m_target = target;
     m_up = up.normalized();
+    return true;
+}
+
+
+/// Picking Ray
+
+bool Camera::screenPointToRay(int screenX, int screenY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const
+{
+    if (viewportWidth <= 0 || viewportHeight <= 0)
+    {
+        qWarning() << "Camera screenPointToRay failed: viewport size is invalid:" << m_name;
+        return false;
+    }
+
+    // Qt Widget 像素原点位于左上角，而 OpenGL NDC 的 Y 正方向向上。
+    const float normalizedX = static_cast<float>(screenX) / static_cast<float>(viewportWidth);
+    const float normalizedY = static_cast<float>(screenY) / static_cast<float>(viewportHeight);
+    const float ndcX = normalizedX * 2.0f - 1.0f;
+    const float ndcY = 1.0f - normalizedY * 2.0f;
+    const float aspect = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
+
+    bool invertible = false;
+    const QMatrix4x4 inverseViewProjection = (projectionMatrix(aspect) * viewMatrix()).inverted(&invertible);
+
+    if (!invertible)
+    {
+        qWarning() << "Camera screenPointToRay failed: view-projection matrix is not invertible:" << m_name;
+        return false;
+    }
+
+    QVector4D nearPoint = inverseViewProjection * QVector4D(ndcX, ndcY, -1.0f, 1.0f);
+    QVector4D farPoint = inverseViewProjection * QVector4D(ndcX, ndcY, 1.0f, 1.0f);
+
+    const float homogeneousEpsilon = 1.0e-8f;
+
+    if (qAbs(nearPoint.w()) <= homogeneousEpsilon || qAbs(farPoint.w()) <= homogeneousEpsilon)
+    {
+        qWarning() << "Camera screenPointToRay failed: unprojected homogeneous coordinate is invalid:" << m_name;
+        return false;
+    }
+
+    nearPoint /= nearPoint.w();
+    farPoint /= farPoint.w();
+
+    const QVector3D nearWorld = nearPoint.toVector3D();
+    const QVector3D farWorld = farPoint.toVector3D();
+
+    // 透视相机的所有 Picking Ray 从 Camera Position 发出；正交相机则从对应像素的 Near Plane 点发出。
+    rayOrigin = m_projectionType == CameraProjectionPerspective ? m_position : nearWorld;
+    rayDirection = farWorld - rayOrigin;
+
+    if (rayDirection.lengthSquared() <= homogeneousEpsilon)
+    {
+        qWarning() << "Camera screenPointToRay failed: generated ray direction is zero:" << m_name;
+        return false;
+    }
+
+    rayDirection.normalize();
     return true;
 }
 
