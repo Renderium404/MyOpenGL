@@ -1,14 +1,12 @@
 #include "CameraManager.h"
 
-#include "Scene/AxisAlignedBoundingBox.h"
-#include "Scene/Scene.h"
-
 #include <QDebug>
 #include <QQuaternion>
 #include <QtMath>
 
 CameraManager::CameraManager()
-    : m_nextId(1)
+    : m_viewBounds(createDefaultViewBounds())
+    , m_nextId(1)
     , m_activeCameraId(InvalidCameraId)
 {
 }
@@ -38,9 +36,17 @@ CameraId CameraManager::add(Camera* camera)
     camera->setId(id);
     m_cameras[id] = camera;
 
-    // 第一个加入管理器的 Camera 自动成为 Active Camera。
+    // 第一个加入管理器的 Camera 自动成为 Active Camera，并立即以当前 View Bounds Center 同步视图中心。
     if (m_activeCameraId == InvalidCameraId)
+    {
         m_activeCameraId = id;
+
+        if (!applyView(m_viewBounds, camera->forward(), camera->up(), camera->distanceToTarget()))
+        {
+            qWarning() << "CameraManager add: unable to synchronize first Camera with default View Bounds:" << camera->name();
+            m_activeCameraId = InvalidCameraId;
+        }
+    }
 
     return id;
 }
@@ -105,6 +111,7 @@ void CameraManager::clear()
     }
 
     m_cameras.clear();
+    m_viewBounds = createDefaultViewBounds();
     m_activeCameraId = InvalidCameraId;
 }
 
@@ -112,13 +119,24 @@ void CameraManager::clear()
 
 bool CameraManager::setActiveCamera(CameraId id)
 {
-    if (!contains(id))
+    Camera* camera = get(id);
+
+    if (camera == 0)
     {
         qWarning() << "CameraManager setActiveCamera failed: camera does not exist:" << id;
         return false;
     }
 
+    const CameraId previousActiveCameraId = m_activeCameraId;
     m_activeCameraId = id;
+
+    // 切换 Camera 后仍以同一 View Bounds 为视图控制范围；只保留该 Camera 自己的方向和距离。
+    if (!applyView(m_viewBounds, camera->forward(), camera->up(), camera->distanceToTarget()))
+    {
+        m_activeCameraId = previousActiveCameraId;
+        return false;
+    }
+
     return true;
 }
 
@@ -137,7 +155,148 @@ const Camera* CameraManager::activeCamera() const
     return get(m_activeCameraId);
 }
 
+/// View Bounds
+
+bool CameraManager::setViewBounds(const AxisAlignedBoundingBox& bounds)
+{
+    if (!bounds.isValid())
+    {
+        qWarning() << "CameraManager setViewBounds failed: bounds are invalid.";
+        return false;
+    }
+
+    m_viewBounds = bounds;
+    return true;
+}
+
+void CameraManager::clearViewBounds()
+{
+    const AxisAlignedBoundingBox defaultBounds = createDefaultViewBounds();
+    Camera* camera = activeCamera();
+
+    if (camera != 0)
+    {
+        // 恢复默认 Bounds 时同步 Camera，使 Target 与 View Bounds Center 始终保持一致。
+        if (!applyView(defaultBounds, camera->forward(), camera->up(), camera->distanceToTarget()))
+        {
+            qWarning() << "CameraManager clearViewBounds failed: unable to apply default View Bounds.";
+            return;
+        }
+    }
+
+    m_viewBounds = defaultBounds;
+}
+
+bool CameraManager::hasViewBounds() const
+{
+    return m_viewBounds.isValid();
+}
+
+const AxisAlignedBoundingBox& CameraManager::viewBounds() const
+{
+    return m_viewBounds;
+}
+
+bool CameraManager::focusBounds(const AxisAlignedBoundingBox& bounds)
+{
+    Camera* camera = activeCamera();
+
+    if (camera == 0)
+    {
+        qWarning() << "CameraManager focusBounds failed: active camera does not exist.";
+        return false;
+    }
+
+    if (!bounds.isValid())
+    {
+        qWarning() << "CameraManager focusBounds failed: bounds are invalid.";
+        return false;
+    }
+
+    const float distance = camera->distanceToTarget();
+
+    // focusBounds() 的操作对象是完整 Bounds：
+    // 替换 View Bounds，并保持当前观察方向 / 距离，把 Camera 平移到新的 Bounds Center。
+    if (!applyView(bounds, camera->forward(), camera->up(), distance))
+        return false;
+
+    m_viewBounds = bounds;
+    return true;
+}
+
+bool CameraManager::focusPoint(const QVector3D& worldPoint)
+{
+    Camera* camera = activeCamera();
+
+    if (camera == 0)
+    {
+        qWarning() << "CameraManager focusPoint failed: active camera does not exist.";
+        return false;
+    }
+
+    if (!validateViewBounds("focusPoint"))
+        return false;
+
+    // focusPoint() 不直接修改 Camera Target。
+    // 它平移整个 View Bounds，使 Bounds Center 移到指定点；Camera 再由新 Bounds Center 派生。
+    const QVector3D translation = worldPoint - m_viewBounds.center();
+    AxisAlignedBoundingBox translatedBounds;
+
+    if (!translatedViewBounds(translation, translatedBounds))
+        return false;
+
+    const float distance = camera->distanceToTarget();
+
+    if (!applyView(translatedBounds, camera->forward(), camera->up(), distance))
+        return false;
+
+    m_viewBounds = translatedBounds;
+    return true;
+}
+
+bool CameraManager::fitViewBounds(int viewportWidth, int viewportHeight, float margin)
+{
+    if (!validateViewBounds("fitViewBounds"))
+        return false;
+
+    return fitBoundsInternal(m_viewBounds, viewportWidth, viewportHeight, margin);
+}
+
+bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewportWidth, int viewportHeight, float margin)
+{
+    if (!bounds.isValid())
+    {
+        qWarning() << "CameraManager fitBounds failed: bounds are invalid.";
+        return false;
+    }
+
+    // 先使用明确 Bounds 计算并应用 Camera；成功后再更新缓存，避免失败时留下半更新状态。
+    if (!fitBoundsInternal(bounds, viewportWidth, viewportHeight, margin))
+        return false;
+
+    m_viewBounds = bounds;
+    return true;
+}
+
 /// 视图导航
+
+bool CameraManager::setViewDirection(const QVector3D& forward, const QVector3D& up)
+{
+    Camera* camera = activeCamera();
+
+    if (camera == 0)
+    {
+        qWarning() << "CameraManager setViewDirection failed: active camera does not exist.";
+        return false;
+    }
+
+    if (!validateViewBounds("setViewDirection"))
+        return false;
+
+    // Direction 只改变 Camera 围绕 View Bounds Center 的观察角度。
+    // Target 始终重新取 m_viewBounds.center()，不沿用 Camera 自己缓存的旧 Target。
+    return applyView(m_viewBounds, forward, up, camera->distanceToTarget());
+}
 
 bool CameraManager::orbit(float yawDegrees, float pitchDegrees)
 {
@@ -149,10 +308,22 @@ bool CameraManager::orbit(float yawDegrees, float pitchDegrees)
         return false;
     }
 
-    QVector3D offset = camera->position() - camera->target();
+    if (!validateViewBounds("orbit"))
+        return false;
+
+    const QVector3D center = m_viewBounds.center();
+    QVector3D offset = camera->position() - center;
     const QVector3D orbitUp = camera->up().normalized();
 
-    // Yaw 始终允许绕 Orbit Up 旋转，即使 Camera 已经位于 Pitch 极限附近。
+    const float directionEpsilon = 1.0e-8f;
+
+    if (offset.lengthSquared() <= directionEpsilon || orbitUp.lengthSquared() <= directionEpsilon)
+    {
+        qWarning() << "CameraManager orbit failed: current Camera view is invalid:" << camera->name();
+        return false;
+    }
+
+    // Yaw 始终围绕当前参考 Up 旋转。
     const QQuaternion yawRotation = QQuaternion::fromAxisAndAngle(orbitUp, yawDegrees);
     offset = yawRotation.rotatedVector(offset);
 
@@ -186,7 +357,8 @@ bool CameraManager::orbit(float yawDegrees, float pitchDegrees)
         offset = pitchRotation.rotatedVector(offset);
     }
 
-    return camera->setView(camera->target() + offset, camera->target(), orbitUp);
+    const QVector3D forward = (-offset).normalized();
+    return applyView(m_viewBounds, forward, orbitUp, offset.length());
 }
 
 bool CameraManager::pan(float rightDistance, float upDistance)
@@ -199,8 +371,21 @@ bool CameraManager::pan(float rightDistance, float upDistance)
         return false;
     }
 
+    if (!validateViewBounds("pan"))
+        return false;
+
     const QVector3D translation = camera->right() * rightDistance + camera->viewUp() * upDistance;
-    return camera->setView(camera->position() + translation, camera->target() + translation, camera->up());
+    AxisAlignedBoundingBox translatedBounds;
+
+    if (!translatedViewBounds(translation, translatedBounds))
+        return false;
+
+    // Pan 的本质是平移整个 View Bounds；Camera 与 Bounds 同步平移。
+    if (!applyView(translatedBounds, camera->forward(), camera->up(), camera->distanceToTarget()))
+        return false;
+
+    m_viewBounds = translatedBounds;
+    return true;
 }
 
 bool CameraManager::zoom(float factor)
@@ -213,6 +398,9 @@ bool CameraManager::zoom(float factor)
         return false;
     }
 
+    if (!validateViewBounds("zoom"))
+        return false;
+
     if (factor <= 0.0f)
     {
         qWarning() << "CameraManager zoom failed: factor must be greater than zero:" << camera->name();
@@ -221,24 +409,25 @@ bool CameraManager::zoom(float factor)
 
     if (camera->projectionType() == CameraProjectionOrthographic)
     {
-        // 正交相机通过改变可视高度实现 Zoom，不需要移动 Camera Position。
+        // 正交相机通过改变可视高度实现 Zoom；View Bounds 自身不发生变化。
         const float newHeight = camera->orthographicHeight() / factor;
 
         // 0.001 世界单位作为最小正交视图高度，避免无限放大导致数值退化。
         if (newHeight < 0.001f)
-        {
-            qWarning() << "CameraManager zoom rejected: orthographic height is too small:" << camera->name();
+            return true;
+
+        // 即使正交 Zoom 不需要移动 Camera，也先重新以 View Bounds Center 同步 Target。
+        if (!applyView(m_viewBounds, camera->forward(), camera->up(), camera->distanceToTarget()))
             return false;
-        }
 
         return camera->setOrthographic(newHeight, camera->nearPlane(), camera->farPlane());
     }
 
-    // 透视相机通过改变 Position 与 Target 的距离实现 Zoom，Target 保持不变。
+    // 透视相机围绕 View Bounds Center 改变观察距离。
     const float currentDistance = camera->distanceToTarget();
     float newDistance = currentDistance / factor;
 
-    // Camera 必须与 Near Plane 保持足够距离，否则 Orbit Target 会进入 Near Plane 裁剪区域。
+    // Camera 必须与 Near Plane 保持足够距离，否则 View Bounds Center 会进入 Near Plane 附近。
     const float nearPlaneSafetyFactor = 2.5f;
     const float minimumDistance = camera->nearPlane() * nearPlaneSafetyFactor;
     const float maximumDistance = 200.0f;
@@ -252,50 +441,152 @@ bool CameraManager::zoom(float factor)
     if (qAbs(newDistance - currentDistance) < 1.0e-6f)
         return true;
 
-    const QVector3D newPosition = camera->target() - camera->forward() * newDistance;
-    return camera->setView(newPosition, camera->target(), camera->up());
+    return applyView(m_viewBounds, camera->forward(), camera->up(), newDistance);
 }
 
-bool CameraManager::focus(const QVector3D& target)
+/// 标准方向
+
+bool CameraManager::viewFront()
+{
+    return setViewDirection(QVector3D(0.0f, 0.0f, -1.0f), QVector3D(0.0f, 1.0f, 0.0f));
+}
+
+bool CameraManager::viewBack()
+{
+    return setViewDirection(QVector3D(0.0f, 0.0f, 1.0f), QVector3D(0.0f, 1.0f, 0.0f));
+}
+
+bool CameraManager::viewLeft()
+{
+    return setViewDirection(QVector3D(1.0f, 0.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
+}
+
+bool CameraManager::viewRight()
+{
+    return setViewDirection(QVector3D(-1.0f, 0.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
+}
+
+bool CameraManager::viewTop()
+{
+    // Top View 沿 -Y 观察；使用 -Z 作为屏幕上方向，避免 Up 与 Forward 平行。
+    return setViewDirection(QVector3D(0.0f, -1.0f, 0.0f), QVector3D(0.0f, 0.0f, -1.0f));
+}
+
+bool CameraManager::viewBottom()
+{
+    // Bottom View 沿 +Y 观察；使用 +Z 作为屏幕上方向，与 Top View 保持镜像语义。
+    return setViewDirection(QVector3D(0.0f, 1.0f, 0.0f), QVector3D(0.0f, 0.0f, 1.0f));
+}
+
+bool CameraManager::viewIsometric()
+{
+    // 从 +X/+Y/+Z 八分体观察 View Bounds Center；+Y 作为世界 Up 参考。
+    return setViewDirection(QVector3D(-1.0f, -1.0f, -1.0f), QVector3D(0.0f, 1.0f, 0.0f));
+}
+
+/// 内部视图计算
+
+AxisAlignedBoundingBox CameraManager::createDefaultViewBounds()
+{
+    // 默认盒边长为 2、中心位于世界原点。
+    // Viewer 尚未提供业务 Bounds 时，所有 Camera 操作仍然具有稳定的几何中心和空间尺度。
+    return AxisAlignedBoundingBox(
+        QVector3D(-1.0f, -1.0f, -1.0f),
+        QVector3D(1.0f, 1.0f, 1.0f));
+}
+
+bool CameraManager::validateViewBounds(const char* operation) const
+{
+    if (m_viewBounds.isValid())
+        return true;
+
+    qWarning() << "CameraManager" << operation << "failed: View Bounds are invalid; CameraManager should always keep a default Bounds.";
+    return false;
+}
+
+bool CameraManager::applyView(const AxisAlignedBoundingBox& bounds, const QVector3D& forward, const QVector3D& up, float distance)
 {
     Camera* camera = activeCamera();
 
     if (camera == 0)
     {
-        qWarning() << "CameraManager focus failed: active camera does not exist.";
-        return false;
-    }
-
-    // Position 与 Target 同量平移，因此保持 Forward、Up 和 Camera Distance 不变。
-    const QVector3D translation = target - camera->target();
-    return camera->setView(camera->position() + translation, target, camera->up());
-}
-
-bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewportWidth, int viewportHeight, float margin)
-{
-    Camera* camera = activeCamera();
-
-    if (camera == 0)
-    {
-        qWarning() << "CameraManager fitBounds failed: active camera does not exist.";
+        qWarning() << "CameraManager applyView failed: active camera does not exist.";
         return false;
     }
 
     if (!bounds.isValid())
     {
-        qWarning() << "CameraManager fitBounds failed: bounds are invalid.";
+        qWarning() << "CameraManager applyView failed: bounds are invalid.";
+        return false;
+    }
+
+    // 1e-8 用于避免零长度方向参与 Normalize 和 Cross Product。
+    const float directionEpsilon = 1.0e-8f;
+
+    if (forward.lengthSquared() <= directionEpsilon || up.lengthSquared() <= directionEpsilon)
+    {
+        qWarning() << "CameraManager applyView failed: view direction is invalid:" << camera->name();
+        return false;
+    }
+
+    const QVector3D normalizedForward = forward.normalized();
+    const QVector3D normalizedUp = up.normalized();
+
+    if (QVector3D::crossProduct(normalizedForward, normalizedUp).lengthSquared() <= directionEpsilon)
+    {
+        qWarning() << "CameraManager applyView failed: up vector cannot be parallel to view direction:" << camera->name();
+        return false;
+    }
+
+    // 所有 Manager 导航操作最终都归结为：
+    // View Bounds Center -> Camera Target；
+    // Forward + Distance -> Camera Position。
+    const float minimumDistance = camera->nearPlane() * 2.5f;
+    const float safeDistance = qMax(distance, minimumDistance);
+    const QVector3D center = bounds.center();
+    const QVector3D position = center - normalizedForward * safeDistance;
+
+    return camera->setView(position, center, normalizedUp);
+}
+
+bool CameraManager::translatedViewBounds(const QVector3D& translation, AxisAlignedBoundingBox& translatedBounds) const
+{
+    translatedBounds.reset();
+
+    if (!m_viewBounds.isValid())
+    {
+        qWarning() << "CameraManager translatedViewBounds failed: View Bounds are not set.";
+        return false;
+    }
+
+    return translatedBounds.set(m_viewBounds.minimum() + translation, m_viewBounds.maximum() + translation);
+}
+
+bool CameraManager::fitBoundsInternal(const AxisAlignedBoundingBox& bounds, int viewportWidth, int viewportHeight, float margin)
+{
+    Camera* camera = activeCamera();
+
+    if (camera == 0)
+    {
+        qWarning() << "CameraManager fitBoundsInternal failed: active camera does not exist.";
+        return false;
+    }
+
+    if (!bounds.isValid())
+    {
+        qWarning() << "CameraManager fitBoundsInternal failed: bounds are invalid.";
         return false;
     }
 
     if (viewportWidth <= 0 || viewportHeight <= 0)
     {
-        qWarning() << "CameraManager fitBounds failed: viewport size is invalid.";
+        qWarning() << "CameraManager fitBoundsInternal failed: viewport size is invalid.";
         return false;
     }
 
     if (margin < 1.0f)
     {
-        qWarning() << "CameraManager fitBounds failed: margin must be at least 1.0:" << margin;
+        qWarning() << "CameraManager fitBoundsInternal failed: margin must be at least 1.0:" << margin;
         return false;
     }
 
@@ -340,10 +631,8 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewport
         if (requiredHeight < minimumOrthographicHeight)
             requiredHeight = minimumOrthographicHeight;
 
-        // 正交 Fit 只平移 Position / Target 并调整 Orthographic Height，观察方向和 Camera Distance 保持不变。
-        const QVector3D translation = center - camera->target();
-
-        if (!camera->setView(camera->position() + translation, center, camera->up()))
+        // 正交 Fit 同样先把 Camera Target 对齐到 Bounds Center，再调整 Orthographic Height。
+        if (!applyView(bounds, forward, camera->up(), camera->distanceToTarget()))
             return false;
 
         return camera->setOrthographic(requiredHeight, camera->nearPlane(), camera->farPlane());
@@ -355,7 +644,7 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewport
 
     if (verticalTangent <= 0.0f || horizontalTangent <= 0.0f)
     {
-        qWarning() << "CameraManager fitBounds failed: perspective field of view is invalid:" << camera->name();
+        qWarning() << "CameraManager fitBoundsInternal failed: perspective field of view is invalid:" << camera->name();
         return false;
     }
 
@@ -386,105 +675,5 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewport
     if (requiredDistance < minimumDistance)
         requiredDistance = minimumDistance;
 
-    const QVector3D newPosition = center - forward * requiredDistance;
-    return camera->setView(newPosition, center, camera->up());
+    return applyView(bounds, forward, camera->up(), requiredDistance);
 }
-
-bool CameraManager::fitAll(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    AxisAlignedBoundingBox bounds;
-
-    if (!scene.worldBounds(bounds, true))
-    {
-        qWarning() << "CameraManager fitAll failed: visible Scene contains no valid Bounds.";
-        return false;
-    }
-
-    // Scene 只负责聚合 Bounds；实际 Perspective / Orthographic 取景统一由 fitBounds() 完成。
-    return fitBounds(bounds, viewportWidth, viewportHeight, margin);
-}
-
-/// 标准视图
-
-bool CameraManager::viewFront(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(0.0f, 0.0f, -1.0f), QVector3D(0.0f, 1.0f, 0.0f), margin);
-}
-
-bool CameraManager::viewBack(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(0.0f, 0.0f, 1.0f), QVector3D(0.0f, 1.0f, 0.0f), margin);
-}
-
-bool CameraManager::viewLeft(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(1.0f, 0.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f), margin);
-}
-
-bool CameraManager::viewRight(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(-1.0f, 0.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f), margin);
-}
-
-bool CameraManager::viewTop(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    // Top View 沿 -Y 观察；使用 -Z 作为屏幕上方向，避免 Up 与 Forward 平行。
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(0.0f, -1.0f, 0.0f), QVector3D(0.0f, 0.0f, -1.0f), margin);
-}
-
-bool CameraManager::viewBottom(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    // Bottom View 沿 +Y 观察；使用 +Z 作为屏幕上方向，与 Top View 保持镜像语义。
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(0.0f, 1.0f, 0.0f), QVector3D(0.0f, 0.0f, 1.0f), margin);
-}
-
-bool CameraManager::viewIsometric(const Scene& scene, int viewportWidth, int viewportHeight, float margin)
-{
-    // 从 +X/+Y/+Z 八分体观察原点方向；+Y 继续作为世界 Up 参考，使竖直方向保持直观。
-    return setStandardView(scene, viewportWidth, viewportHeight, QVector3D(-1.0f, -1.0f, -1.0f), QVector3D(0.0f, 1.0f, 0.0f), margin);
-}
-
-bool CameraManager::setStandardView(const Scene& scene, int viewportWidth, int viewportHeight, const QVector3D& forward, const QVector3D& up, float margin)
-{
-    Camera* camera = activeCamera();
-
-    if (camera == 0)
-    {
-        qWarning() << "CameraManager setStandardView failed: active camera does not exist.";
-        return false;
-    }
-
-    const float directionEpsilon = 1.0e-8f;
-
-    if (forward.lengthSquared() <= directionEpsilon || up.lengthSquared() <= directionEpsilon)
-    {
-        qWarning() << "CameraManager setStandardView failed: view direction is invalid:" << camera->name();
-        return false;
-    }
-
-    const QVector3D normalizedForward = forward.normalized();
-    const QVector3D normalizedUp = up.normalized();
-
-    if (QVector3D::crossProduct(normalizedForward, normalizedUp).lengthSquared() <= directionEpsilon)
-    {
-        qWarning() << "CameraManager setStandardView failed: up vector cannot be parallel to view direction:" << camera->name();
-        return false;
-    }
-
-    // 先只改变观察方向并保持当前 Target / Distance；随后统一复用 fitAll() 完成 Scene 居中和距离计算。
-    // 这样所有标准视图与自由视角 Fit All 使用同一套 Bounds / FOV 规则。
-    float distance = camera->distanceToTarget();
-    const float minimumDistance = camera->nearPlane() * 2.5f;
-
-    if (distance < minimumDistance)
-        distance = minimumDistance;
-
-    const QVector3D target = camera->target();
-    const QVector3D position = target - normalizedForward * distance;
-
-    if (!camera->setView(position, target, normalizedUp))
-        return false;
-
-    return fitAll(scene, viewportWidth, viewportHeight, margin);
-}
-

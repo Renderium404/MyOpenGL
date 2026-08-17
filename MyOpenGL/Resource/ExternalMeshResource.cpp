@@ -13,7 +13,7 @@ ExternalMeshResource::ExternalMeshResource(const QString& name, ResourceUpdatePo
     , m_indexBuffer(0)
 {
     m_view.vertexCount = 0;
-    m_view.primitiveType = MeshPrimitiveTriangles;
+    m_view.renderType = Triangles;
 
     m_view.indices.data = 0;
     m_view.indices.byteSize = 0;
@@ -167,12 +167,12 @@ void ExternalMeshResource::resetSyncStatistics()
 
 /// Renderer 接口
 
-const QString& ExternalMeshResource::renderMeshName() const
+const QString& ExternalMeshResource::objectName() const
 {
     return name();
 }
 
-bool ExternalMeshResource::renderMeshInitialized() const
+bool ExternalMeshResource::objectInitialized() const
 {
     return isInitialized();
 }
@@ -192,9 +192,9 @@ GLenum ExternalMeshResource::indexType() const
     return m_view.indices.indexType;
 }
 
-MeshPrimitiveType ExternalMeshResource::primitiveType() const
+RenderType ExternalMeshResource::renderType() const
 {
-    return m_view.primitiveType;
+    return m_view.renderType;
 }
 
 bool ExternalMeshResource::hasAttribute(GLuint location, GLint componentCount) const
@@ -482,19 +482,19 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
         return false;
     }
 
-    if (view.primitiveType == MeshPrimitiveTriangles && view.indices.indexCount % 3 != 0)
+    if (view.renderType == Triangles && view.indices.indexCount % 3 != 0)
     {
         qWarning() << "ExternalMeshResource validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (view.primitiveType == MeshPrimitiveLines && view.indices.indexCount % 2 != 0)
+    if (view.renderType == Lines && view.indices.indexCount % 2 != 0)
     {
         qWarning() << "ExternalMeshResource validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (view.primitiveType == MeshPrimitiveLineStrip && view.indices.indexCount < 2)
+    if (view.renderType == LineStrip && view.indices.indexCount < 2)
     {
         qWarning() << "ExternalMeshResource validation failed: line strip requires at least 2 indices:" << name();
         return false;

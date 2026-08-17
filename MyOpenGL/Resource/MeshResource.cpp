@@ -4,22 +4,22 @@
 
 #include <algorithm>
 
-MeshResource::MeshResource(const QString& name, ResourceUpdatePolicy updatePolicy, MeshPrimitiveType primitiveType)
+MeshResource::MeshResource(const QString& name, ResourceUpdatePolicy updatePolicy, RenderType renderType)
     : Resource(name, ResourceTypeMesh, updatePolicy)
     , m_vao(0)
     , m_vbo(0)
     , m_ebo(0)
-    , m_primitiveType(primitiveType)
+    , m_primitiveType(renderType)
     , m_valuesPerVertex(0)
 {
 }
 
-MeshResource::MeshResource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy, MeshPrimitiveType primitiveType)
+MeshResource::MeshResource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy, RenderType renderType)
     : Resource(name, type, updatePolicy)
     , m_vao(0)
     , m_vbo(0)
     , m_ebo(0)
-    , m_primitiveType(primitiveType)
+    , m_primitiveType(renderType)
     , m_valuesPerVertex(0)
 {
 }
@@ -30,7 +30,7 @@ MeshResource::~MeshResource()
 
 /// Mesh 基本信息
 
-MeshPrimitiveType MeshResource::primitiveType() const
+RenderType MeshResource::renderType() const
 {
     return m_primitiveType;
 }
@@ -177,12 +177,12 @@ GLuint MeshResource::ebo() const
 
 /// Renderer 接口
 
-const QString& MeshResource::renderMeshName() const
+const QString& MeshResource::objectName() const
 {
     return name();
 }
 
-bool MeshResource::renderMeshInitialized() const
+bool MeshResource::objectInitialized() const
 {
     return isInitialized();
 }
@@ -358,19 +358,19 @@ bool MeshResource::validateData() const
         }
     }
 
-    if (m_primitiveType == MeshPrimitiveTriangles && m_indices.size() % 3 != 0)
+    if (m_primitiveType == Triangles && m_indices.size() % 3 != 0)
     {
         qWarning() << "MeshResource validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (m_primitiveType == MeshPrimitiveLines && m_indices.size() % 2 != 0)
+    if (m_primitiveType == Lines && m_indices.size() % 2 != 0)
     {
         qWarning() << "MeshResource validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (m_primitiveType == MeshPrimitiveLineStrip && m_indices.size() < 2)
+    if (m_primitiveType == LineStrip && m_indices.size() < 2)
     {
         qWarning() << "MeshResource validation failed: line strip requires at least 2 indices:" << name();
         return false;

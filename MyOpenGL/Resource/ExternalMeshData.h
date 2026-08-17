@@ -1,7 +1,7 @@
 #ifndef EXTERNALMESHDATA_H
 #define EXTERNALMESHDATA_H
 
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 
 #include <QOpenGLFunctions_3_3_Core>
 
@@ -44,7 +44,7 @@ struct ExternalIndexBufferView
 struct ExternalMeshDataView
 {
     int vertexCount;                                      // 当前 Mesh Vertex 总数量。
-    MeshPrimitiveType primitiveType;                      // 当前绘制图元。
+    RenderType renderType;                      // 当前绘制图元。
     std::vector<ExternalVertexBufferView> vertexBuffers;  // 外部 Mesh 的 Vertex Streams。
     std::vector<ExternalVertexAttribute> attributes;      // Shader Attribute Mapping。
     ExternalIndexBufferView indices;                      // 当前 Index Buffer。

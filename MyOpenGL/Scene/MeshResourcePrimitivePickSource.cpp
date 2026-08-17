@@ -25,7 +25,7 @@ void MeshResourcePrimitivePickSource::setMesh(const MeshResource* mesh)
 
 bool MeshResourcePrimitivePickSource::raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDirection, PrimitivePickHit& hit) const
 {
-    if (m_mesh == 0 || m_mesh->primitiveType() != MeshPrimitiveTriangles)
+    if (m_mesh == 0 || m_mesh->renderType() != Triangles)
         return false;
 
     const std::vector<MeshVertexAttribute>& attributes = m_mesh->attributes();

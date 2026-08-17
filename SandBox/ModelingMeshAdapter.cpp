@@ -31,7 +31,7 @@ bool ModelingMeshAdapter::dataView(ExternalMeshDataView& view) const
     view.attributes.clear();
 
     view.vertexCount = static_cast<int>(m_mesh->positions().size());
-    view.primitiveType = MeshPrimitiveTriangles;
+    view.renderType = Triangles;
 
     ExternalVertexBufferView positionBuffer;
     positionBuffer.data = &m_mesh->positions()[0];

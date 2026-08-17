@@ -10,6 +10,8 @@
 
 class RenderItem;
 
+typedef std::vector<RenderItem*> RenderItemCandidates; // 一次 Scene 查询允许参与的明确 RenderItem 集合。
+
 /// Scene 对象级 Raycast 命中结果。
 struct SceneRayHit
 {
@@ -35,8 +37,9 @@ struct ScenePrimitiveHit
     QVector3D vertices[3];    // 命中 Triangle 三个顶点的世界坐标。
 };
 
-/// 扁平 Scene 容器。
-/// Scene 只拥有 RenderItem；Mesh、Material、Camera、Light 和 GPU Resource 仍由现有 Manager 管理。
+/// 用户对象的扁平 Scene 容器。
+/// Scene 只拥有用户可操作 RenderItem；Mesh、Material、Camera、Light 和 GPU Resource 仍由现有 Manager 管理。
+/// Viewer 内部 Grid、Axis、Camera Target、Highlight、ViewNavigation 等辅助模型不进入 Scene。
 class Scene
 {
 public:
@@ -56,17 +59,12 @@ public:
     /// Scene Bounds
     bool worldBounds(AxisAlignedBoundingBox& bounds, bool visibleOnly = true) const; // 聚合具有 Local Bounds 的 Item；默认忽略隐藏 Item。
 
-    /// Picking / Selection
-    bool raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, SceneRayHit& hit, bool visibleOnly = true, bool skipPrimitivePickable = false); // 对具有 Local Bounds 的 Item 执行 AABB Raycast；可跳过已经支持精确 Primitive Picking 的 Item。
-    bool raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDirection, ScenePrimitiveHit& hit, bool visibleOnly = true); // 对绑定 PrimitivePickSource 的 Item 执行精确 Render Primitive Raycast。
-    RenderItem* selectedItem();
-    const RenderItem* selectedItem() const;
-    bool setSelectedItem(RenderItem* item); // 设置当前选中 Item；Item 必须属于本 Scene。
-    void clearSelection();
+    /// Picking
+    bool raycast(const RenderItemCandidates& candidates, const QVector3D& rayOrigin, const QVector3D& rayDirection, SceneRayHit& hit, bool visibleOnly = true); // 仅对明确 Candidate 中具有 Local Bounds 的 Item 执行 AABB Raycast。
+    bool raycastPrimitive(const RenderItemCandidates& candidates, const QVector3D& rayOrigin, const QVector3D& rayDirection, ScenePrimitiveHit& hit, bool visibleOnly = true); // 仅对明确 Candidate 中绑定 PrimitivePickSource 的 Item 执行精确 Render Primitive Raycast。
 
 private:
-    std::vector<RenderItem*> m_items; // Scene 拥有的扁平 RenderItem 列表，同时定义基础绘制顺序。
-    RenderItem* m_selectedItem;        // 当前对象级 Selection；只借用 m_items 中的对象。
+    std::vector<RenderItem*> m_items; // Scene 拥有的用户 RenderItem 列表，同时定义这些用户对象的基础绘制顺序。
 };
 
 #endif // SCENE_H

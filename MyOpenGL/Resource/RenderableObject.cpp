@@ -1,14 +1,14 @@
-#include "RenderableMesh.h"
+#include "RenderableObject.h"
 
-const char* meshPrimitiveTypeName(MeshPrimitiveType type)
+const char* renderTypeName(RenderType type)
 {
     switch (type)
     {
-    case MeshPrimitiveTriangles:
+    case Triangles:
         return "Triangles";
-    case MeshPrimitiveLines:
+    case Lines:
         return "Lines";
-    case MeshPrimitiveLineStrip:
+    case LineStrip:
         return "LineStrip";
     }
 
@@ -17,7 +17,7 @@ const char* meshPrimitiveTypeName(MeshPrimitiveType type)
 
 /// 绘制同步
 
-bool RenderableMesh::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
+bool RenderableObject::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
 {
     Q_UNUSED(gl);
 
@@ -25,7 +25,7 @@ bool RenderableMesh::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
     return true;
 }
 
-void RenderableMesh::finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const
+void RenderableObject::finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const
 {
     Q_UNUSED(gl);
 

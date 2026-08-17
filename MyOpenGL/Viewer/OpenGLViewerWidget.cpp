@@ -3,15 +3,16 @@
 #include <QApplication>
 #include <QDebug>
 #include <QKeyEvent>
+#include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QWheelEvent>
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 
 #include "Camera/Camera.h"
-#include "Material/Material.h"
 #include "Resource/CoordinateSystemResource.h"
 #include "Resource/GridPlaneResource.h"
 #include "Resource/MeshResource.h"
@@ -21,18 +22,13 @@
 
 OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
     : QOpenGLWidget(parent)
+    , m_pickedItem(0)
     , m_grid(0)
     , m_axes(0)
     , m_viewNavigation(0)
     , m_cameraTargetMarker(0)
-    , m_selectionBounds(0)
-    , m_selectionPrimitive(0)
-    , m_vertexColorMaterial(0)
-    , m_axesItem(0)
-    , m_gridItem(0)
-    , m_cameraTargetItem(0)
-    , m_selectionBoundsItem(0)
-    , m_selectionPrimitiveItem(0)
+    , m_boundsHighlight(0)
+    , m_primitiveHighlight(0)
     , m_leftDragOccurred(false)
     , m_glReady(false)
     , m_releasePerformed(false)
@@ -40,6 +36,8 @@ OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
     , m_showAxes(true)
     , m_showViewNavigation(true)
     , m_showCameraTarget(true)
+    , m_showBoundsHighlight(false)
+    , m_showPrimitiveHighlight(false)
 {
     setFocusPolicy(Qt::StrongFocus);
 
@@ -134,10 +132,6 @@ bool OpenGLViewerWidget::cameraTargetVisible() const
 void OpenGLViewerWidget::setGridVisible(bool visible)
 {
     m_showGrid = visible;
-
-    if (m_gridItem != 0)
-        m_gridItem->setVisible(visible);
-
     viewerStateChanged();
     update();
 }
@@ -145,10 +139,6 @@ void OpenGLViewerWidget::setGridVisible(bool visible)
 void OpenGLViewerWidget::setAxesVisible(bool visible)
 {
     m_showAxes = visible;
-
-    if (m_axesItem != 0)
-        m_axesItem->setVisible(visible);
-
     viewerStateChanged();
     update();
 }
@@ -163,12 +153,69 @@ void OpenGLViewerWidget::setViewNavigationVisible(bool visible)
 void OpenGLViewerWidget::setCameraTargetVisible(bool visible)
 {
     m_showCameraTarget = visible;
-
-    if (m_cameraTargetItem != 0)
-        m_cameraTargetItem->setVisible(visible);
-
     viewerStateChanged();
     update();
+}
+
+/// Picking Candidates
+
+const RenderItemCandidates& OpenGLViewerWidget::pickCandidates() const
+{
+    return m_pickCandidates;
+}
+
+bool OpenGLViewerWidget::addPickCandidate(RenderItem* item)
+{
+    if (item == 0)
+    {
+        qWarning() << "OpenGLViewerWidget addPickCandidate failed: item is null.";
+        return false;
+    }
+
+    bool belongsToScene = false;
+
+    for (int i = 0; i < m_scene.itemCount(); ++i)
+    {
+        if (m_scene.item(i) == item)
+        {
+            belongsToScene = true;
+            break;
+        }
+    }
+
+    if (!belongsToScene)
+    {
+        qWarning() << "OpenGLViewerWidget addPickCandidate failed: item does not belong to current Scene.";
+        return false;
+    }
+
+    if (std::find(m_pickCandidates.begin(), m_pickCandidates.end(), item) != m_pickCandidates.end())
+        return true;
+
+    m_pickCandidates.push_back(item);
+    return true;
+}
+
+bool OpenGLViewerWidget::removePickCandidate(RenderItem* item)
+{
+    if (item == 0)
+    {
+        qWarning() << "OpenGLViewerWidget removePickCandidate failed: item is null.";
+        return false;
+    }
+
+    RenderItemCandidates::iterator it = std::find(m_pickCandidates.begin(), m_pickCandidates.end(), item);
+
+    if (it == m_pickCandidates.end())
+        return false;
+
+    m_pickCandidates.erase(it);
+    return true;
+}
+
+void OpenGLViewerWidget::clearPickCandidates()
+{
+    m_pickCandidates.clear();
 }
 
 /// 派生内容扩展
@@ -233,8 +280,22 @@ void OpenGLViewerWidget::initializeGL()
         return;
     }
 
-    // 每次 Context 初始化都重建 RenderItem 借用关系；Resource / Material 的所有权仍由 Manager 持有。
+    // 每次 Context 初始化都重建用户 RenderItem；Viewer 内部辅助模型始终由 Viewer 自己直接绘制。
     rebuildViewerSceneItems();
+
+    // 构造阶段 CameraManager 使用默认原点单位盒；Scene Item 建立后，如果存在实际业务 Bounds，
+    // 则显式用 Scene Bounds 替换当前 View Bounds，并保持 resetCamera() 设置的默认观察方向完成初始 Fit。
+    AxisAlignedBoundingBox initialSceneBounds;
+
+    if (m_scene.worldBounds(initialSceneBounds, true))
+    {
+        if (!m_cameraManager.fitBounds(initialSceneBounds, width(), height()))
+        {
+            qWarning() << "OpenGLViewerWidget initializeGL failed: unable to fit initial Scene Bounds.";
+            releaseViewerGL();
+            return;
+        }
+    }
 
     if (!m_resourceManager.syncAll(gl))
     {
@@ -284,23 +345,78 @@ void OpenGLViewerWidget::paintGL()
     if (!m_renderer.beginFrame(camera, width(), height()))
         return;
 
-    if (m_cameraTargetItem != 0)
+    QMatrix4x4 identityModel;
+
+    // Viewer 内部世界辅助元素直接走低层 Renderer，不进入 Scene / RenderItem。
+    // Axis 必须先于 Grid 绘制，使与 Grid 共面的 X / Z 轴在 GL_LESS 深度测试下优先保留。
+    if (m_showAxes && m_axes != 0)
     {
-        // Marker 世界尺寸随 Camera Distance 等比例变化，因此屏幕视觉尺寸近似保持稳定。
-        const float targetMarkerScale = camera->distanceToTarget() * 0.02f;
-        m_cameraTargetItem->transform().setPosition(camera->target());
-        m_cameraTargetItem->transform().setUniformScale(targetMarkerScale);
+        if (!m_renderer.drawVertexColorMesh(m_axes, identityModel, true))
+        {
+            qWarning() << "OpenGLViewerWidget paintGL failed: World Axis drawing failed.";
+            m_renderer.endFrame();
+            return;
+        }
     }
 
-    // 普通世界对象统一由 Scene 驱动；Scene Item 创建顺序同时定义当前基础绘制顺序。
+    if (m_showGrid && m_grid != 0)
+    {
+        if (!m_renderer.drawVertexColorMesh(m_grid, identityModel, true))
+        {
+            qWarning() << "OpenGLViewerWidget paintGL failed: Grid drawing failed.";
+            m_renderer.endFrame();
+            return;
+        }
+    }
+
+    // Scene 只绘制用户可操作 RenderItem。
     if (!m_renderer.drawScene(&m_scene, &m_resourceManager, &m_lightManager))
     {
-        qWarning() << "OpenGLViewerWidget paintGL failed: Scene drawing failed.";
+        qWarning() << "OpenGLViewerWidget paintGL failed: user Scene drawing failed.";
         m_renderer.endFrame();
         return;
     }
 
-    // View Navigation 使用独立的屏幕角落 Viewport，不属于普通世界 Scene Item。
+    if (m_showCameraTarget && m_cameraTargetMarker != 0)
+    {
+        // CameraManager 的视图中心由 View Bounds Center 决定。
+        // Marker 是 Viewer 内部辅助模型：世界位置取 View Bounds Center，屏幕视觉尺寸随 Camera Distance 近似保持稳定。
+        const float targetMarkerScale = camera->distanceToTarget() * 0.02f;
+        QMatrix4x4 targetModel;
+        targetModel.translate(m_cameraManager.viewBounds().center());
+        targetModel.scale(targetMarkerScale);
+
+        if (!m_renderer.drawVertexColorMesh(m_cameraTargetMarker, targetModel, false))
+        {
+            qWarning() << "OpenGLViewerWidget paintGL failed: Camera Target drawing failed.";
+            m_renderer.endFrame();
+            return;
+        }
+    }
+
+    if (m_showBoundsHighlight && m_boundsHighlight != 0)
+    {
+        // Highlight 顶点已经是 World Space，因此 Model Matrix 保持 Identity；关闭 Depth Test 保证全部边可见。
+        if (!m_renderer.drawVertexColorMesh(m_boundsHighlight, identityModel, false))
+        {
+            qWarning() << "OpenGLViewerWidget paintGL failed: Bounds Highlight drawing failed.";
+            m_renderer.endFrame();
+            return;
+        }
+    }
+
+    if (m_showPrimitiveHighlight && m_primitiveHighlight != 0)
+    {
+        // Primitive Highlight 同样直接保存 World Triangle Vertex，不经过 RenderItem Transform。
+        if (!m_renderer.drawVertexColorMesh(m_primitiveHighlight, identityModel, false))
+        {
+            qWarning() << "OpenGLViewerWidget paintGL failed: Primitive Highlight drawing failed.";
+            m_renderer.endFrame();
+            return;
+        }
+    }
+
+    // View Navigation 使用独立的屏幕角落 Viewport，同样不属于用户 Scene。
     if (m_showViewNavigation)
         m_renderer.drawViewNavigation(m_viewNavigation, camera);
 
@@ -359,7 +475,7 @@ void OpenGLViewerWidget::mousePressEvent(QMouseEvent* event)
         m_leftPressPosition = event->pos();
         m_leftDragOccurred = false;
 
-        // Left Button 同时承担 Click Selection 和 Drag Orbit。
+        // Left Button 同时承担 Click Picking 和 Drag Orbit。
         // 当前 Widget 主动接管这次手势，避免基类默认处理改变事件状态。
         event->accept();
         return;
@@ -431,7 +547,7 @@ void OpenGLViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         // 只要本次手势从未越过 Qt Drag Threshold，就按 Click 处理。
         // Release 位置直接用于生成 Picking Ray。
         if (!m_leftDragOccurred)
-            selectObjectAt(event->pos());
+            pickAt(event->pos());
 
         m_leftDragOccurred = false;
         event->accept();
@@ -459,7 +575,10 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_Escape)
     {
-        clearObjectSelection();
+        // Esc 是 Viewer 交互组合：清除最近 Pick 状态，并显式清除两种 Highlight。
+        clearPickedItem();
+        clearBoundsHighlight();
+        clearPrimitiveHighlight();
         viewerStateChanged();
         update();
         return;
@@ -486,7 +605,8 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_1)
     {
-        if (m_cameraManager.viewFront(m_scene, width(), height()))
+        // 标准方向只操作当前 View Bounds；是否观察整个 Scene、某个 Item 或其他 Bounds 由之前的显式操作决定。
+        if (m_cameraManager.viewFront() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Front");
             viewerStateChanged();
@@ -498,7 +618,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_2)
     {
-        if (m_cameraManager.viewBack(m_scene, width(), height()))
+        if (m_cameraManager.viewBack() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Back");
             viewerStateChanged();
@@ -510,7 +630,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_3)
     {
-        if (m_cameraManager.viewLeft(m_scene, width(), height()))
+        if (m_cameraManager.viewLeft() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Left");
             viewerStateChanged();
@@ -522,7 +642,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_4)
     {
-        if (m_cameraManager.viewRight(m_scene, width(), height()))
+        if (m_cameraManager.viewRight() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Right");
             viewerStateChanged();
@@ -534,7 +654,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_5)
     {
-        if (m_cameraManager.viewTop(m_scene, width(), height()))
+        if (m_cameraManager.viewTop() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Top");
             viewerStateChanged();
@@ -546,7 +666,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_6)
     {
-        if (m_cameraManager.viewBottom(m_scene, width(), height()))
+        if (m_cameraManager.viewBottom() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Bottom");
             viewerStateChanged();
@@ -558,7 +678,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_7)
     {
-        if (m_cameraManager.viewIsometric(m_scene, width(), height()))
+        if (m_cameraManager.viewIsometric() && m_cameraManager.fitViewBounds(width(), height()))
         {
             logCameraView("Isometric");
             viewerStateChanged();
@@ -570,8 +690,28 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_F)
     {
-        if (fitSelectionToView())
+        const RenderItem* currentPickedItem = pickedItem();
+
+        if (currentPickedItem == 0)
         {
+            // 没有当前 Pick 是正常交互状态，不作为程序错误输出 Warning。
+            qDebug() << "OpenGLViewerWidget Fit Picked Item ignored: no item is currently picked.";
+            return;
+        }
+
+        if (fitItemToView(currentPickedItem))
+        {
+            const AxisAlignedBoundingBox bounds = currentPickedItem->worldBounds();
+            const Camera* camera = m_cameraManager.activeCamera();
+
+            // F 只属于 Viewer 快捷键交互语义；基础 fitItemToView() 只接收明确 Item。
+            qDebug() << "OpenGLViewerWidget Fit Picked Item:"
+                     << "Item=" << currentPickedItem->name()
+                     << "Minimum=" << bounds.minimum()
+                     << "Maximum=" << bounds.maximum()
+                     << "Center=" << bounds.center()
+                     << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
+
             viewerStateChanged();
             update();
         }
@@ -581,9 +721,13 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 
     if (event->key() == Qt::Key_O)
     {
-        m_cameraManager.focus(QVector3D(0.0f, 0.0f, 0.0f));
-        viewerStateChanged();
-        update();
+        // O 只平移当前 View Bounds，使其 Center 回到世界原点；Bounds 尺寸和观察方向保持不变。
+        if (focusPoint(QVector3D(0.0f, 0.0f, 0.0f)))
+        {
+            viewerStateChanged();
+            update();
+        }
+
         return;
     }
 
@@ -617,6 +761,35 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
     QOpenGLWidget::keyPressEvent(event);
 }
 
+bool OpenGLViewerWidget::setPickedItem(RenderItem* item)
+{
+    if (item == 0)
+    {
+        qWarning() << "OpenGLViewerWidget setPickedItem failed: item is null; use clearPickedItem() to clear current Pick.";
+        return false;
+    }
+
+    bool belongsToScene = false;
+
+    for (int i = 0; i < m_scene.itemCount(); ++i)
+    {
+        if (m_scene.item(i) == item)
+        {
+            belongsToScene = true;
+            break;
+        }
+    }
+
+    if (!belongsToScene)
+    {
+        qWarning() << "OpenGLViewerWidget setPickedItem failed: item does not belong to current Scene.";
+        return false;
+    }
+
+    m_pickedItem = item;
+    return true;
+}
+
 /// Viewer 创建
 
 void OpenGLViewerWidget::buildViewerResources()
@@ -644,20 +817,13 @@ void OpenGLViewerWidget::buildViewerResources()
     m_cameraTargetMarker = createCameraTargetMarker();
     m_resourceManager.add(m_cameraTargetMarker);
 
-    /// Selection Overlays
+    /// Highlight Overlays
 
-    m_selectionBounds = createSelectionBoundsMesh();
-    m_resourceManager.add(m_selectionBounds);
+    m_boundsHighlight = createBoundsHighlightMesh();
+    m_resourceManager.add(m_boundsHighlight);
 
-    m_selectionPrimitive = createSelectionPrimitiveMesh();
-    m_resourceManager.add(m_selectionPrimitive);
-
-    /// Viewer Material
-
-    // Vertex Color Material 不保存额外表面参数，只用于告诉 Renderer 选择 VertexColor 管线。
-    m_vertexColorMaterial = new Material("ViewerVertexColorMaterial");
-    m_vertexColorMaterial->setVertexColor();
-    m_materialManager.add(m_vertexColorMaterial);
+    m_primitiveHighlight = createPrimitiveHighlightMesh();
+    m_resourceManager.add(m_primitiveHighlight);
 
     /// Camera
 
@@ -668,78 +834,25 @@ void OpenGLViewerWidget::buildViewerResources()
 
 void OpenGLViewerWidget::rebuildViewerSceneItems()
 {
-    // Context 重建时 Scene Item 没有 GPU 状态，因此只重建借用关系；Resource / Material CPU 对象继续由 Manager 持有。
+    // Candidate / Pick State 都只借用用户 Scene Item；Scene 重建前先清除，避免保留失效指针。
+    m_pickCandidates.clear();
+    m_pickedItem = 0;
+    m_showBoundsHighlight = false;
+    m_showPrimitiveHighlight = false;
+
+    // Scene 只拥有用户可操作 RenderItem。Grid / Axis / Camera Target / Highlight / ViewNavigation
+    // 都是 Viewer 内部模型，不进入 Scene，也不占用 Item 操作语义。
     m_scene.clear();
 
-    m_axesItem = 0;
-    m_gridItem = 0;
-    m_cameraTargetItem = 0;
-    m_selectionBoundsItem = 0;
-    m_selectionPrimitiveItem = 0;
-
-    // Axis 必须先于 Grid 绘制，使与 Grid 共面的 X / Z 轴在 GL_LESS 深度测试下优先保留。
-    if (m_axes != 0 && m_vertexColorMaterial != 0)
-    {
-        m_axesItem = m_scene.createItem("WorldAxesItem");
-        m_axesItem->setMesh(m_axes);
-        m_axesItem->setMaterial(m_vertexColorMaterial);
-        m_axesItem->setVisible(m_showAxes);
-    }
-
-    if (m_grid != 0 && m_vertexColorMaterial != 0)
-    {
-        m_gridItem = m_scene.createItem("WorldGridItem");
-        m_gridItem->setMesh(m_grid);
-        m_gridItem->setMaterial(m_vertexColorMaterial);
-        m_gridItem->setVisible(m_showGrid);
-    }
-
-    // 业务 / SandBox Item 插入在世界辅助线之后、Camera/Selection Overlay 之前。
     buildViewerContentItems();
 
-    if (m_cameraTargetMarker != 0 && m_vertexColorMaterial != 0)
-    {
-        m_cameraTargetItem = m_scene.createItem("CameraTargetItem");
-        m_cameraTargetItem->setMesh(m_cameraTargetMarker);
-        m_cameraTargetItem->setMaterial(m_vertexColorMaterial);
-        m_cameraTargetItem->setVisible(m_showCameraTarget);
-
-        // Target 可能位于模型内部，因此调试标记关闭 Depth Test，并保持在普通 Scene 最后绘制。
-        // 调试 Marker 不设置 Local Bounds，因此不会影响 Fit All / Picking。
-        m_cameraTargetItem->setDepthTestEnabled(false);
-    }
-
-    if (m_selectionBounds != 0 && m_vertexColorMaterial != 0)
-    {
-        m_selectionBoundsItem = m_scene.createItem("SelectionBoundsItem");
-        m_selectionBoundsItem->setMesh(m_selectionBounds);
-        m_selectionBoundsItem->setMaterial(m_vertexColorMaterial);
-        m_selectionBoundsItem->setVisible(false);
-
-        // Selection Overlay 使用 World AABB 顶点并关闭 Depth Test，保证被模型遮挡的边仍然可见。
-        // Overlay 不设置 Local Bounds，因此不会参与 Fit All，也不会被再次 Pick。
-        m_selectionBoundsItem->setDepthTestEnabled(false);
-    }
-
-    if (m_selectionPrimitive != 0 && m_vertexColorMaterial != 0)
-    {
-        m_selectionPrimitiveItem = m_scene.createItem("SelectionPrimitiveItem");
-        m_selectionPrimitiveItem->setMesh(m_selectionPrimitive);
-        m_selectionPrimitiveItem->setMaterial(m_vertexColorMaterial);
-        m_selectionPrimitiveItem->setVisible(false);
-
-        // Primitive Overlay 使用命中 Triangle 的 World Vertex，并关闭 Depth Test 便于验证精确拾取结果。
-        // 它没有 Bounds 和 PrimitivePickSource，因此不会参与 Fit / Picking。
-        m_selectionPrimitiveItem->setDepthTestEnabled(false);
-    }
-
-    qDebug() << "OpenGLViewerWidget Render Scene built:"
+    qDebug() << "OpenGLViewerWidget User Scene built:"
              << "Items=" << m_scene.itemCount();
 }
 
 MeshResource* OpenGLViewerWidget::createCameraTargetMarker()
 {
-    MeshResource* marker = new MeshResource("CameraTargetMarker", ResourceUpdateStatic, MeshPrimitiveLines);
+    MeshResource* marker = new MeshResource("CameraTargetMarker", ResourceUpdateStatic, Lines);
 
     std::vector<MeshVertexAttribute> attributes;
 
@@ -787,9 +900,9 @@ MeshResource* OpenGLViewerWidget::createCameraTargetMarker()
     return marker;
 }
 
-MeshResource* OpenGLViewerWidget::createSelectionBoundsMesh()
+MeshResource* OpenGLViewerWidget::createBoundsHighlightMesh()
 {
-    MeshResource* boundsMesh = new MeshResource("SelectionBounds", ResourceUpdateDynamic, MeshPrimitiveLines);
+    MeshResource* boundsMesh = new MeshResource("BoundsHighlight", ResourceUpdateDynamic, Lines);
 
     std::vector<MeshVertexAttribute> attributes;
 
@@ -807,7 +920,7 @@ MeshResource* OpenGLViewerWidget::createSelectionBoundsMesh()
 
     boundsMesh->setVertexLayout(6, attributes);
 
-    // Resource 初始化阶段必须已经具有合法 Mesh 数据；初始单位盒保持隐藏，真正 Selection 后再替换为 World AABB。
+    // Resource 初始化阶段必须已经具有合法 Mesh 数据；初始单位盒不绘制，真正 Highlight 时再替换为明确 World AABB。
     const GLfloat vertices[] =
     {
         -0.5f, -0.5f, -0.5f,    1.0f, 1.0f, 0.0f,
@@ -835,9 +948,9 @@ MeshResource* OpenGLViewerWidget::createSelectionBoundsMesh()
     return boundsMesh;
 }
 
-MeshResource* OpenGLViewerWidget::createSelectionPrimitiveMesh()
+MeshResource* OpenGLViewerWidget::createPrimitiveHighlightMesh()
 {
-    MeshResource* primitiveMesh = new MeshResource("SelectionPrimitive", ResourceUpdateDynamic, MeshPrimitiveLines);
+    MeshResource* primitiveMesh = new MeshResource("PrimitiveHighlight", ResourceUpdateDynamic, Lines);
 
     std::vector<MeshVertexAttribute> attributes;
 
@@ -855,8 +968,8 @@ MeshResource* OpenGLViewerWidget::createSelectionPrimitiveMesh()
 
     primitiveMesh->setVertexLayout(6, attributes);
 
-    // Resource 初始化需要合法数据；初始单位 Triangle 保持隐藏。
-    // 橙色专门表示精确 Render Triangle，和黄色 Object AABB 区分。
+    // Resource 初始化需要合法数据；初始单位 Triangle 不绘制。
+    // 橙色专门表示明确 World Triangle，和黄色 World AABB 区分。
     const GLfloat vertices[] =
     {
         0.0f, 0.0f, 0.0f,    1.0f, 0.35f, 0.0f,
@@ -879,15 +992,15 @@ MeshResource* OpenGLViewerWidget::createSelectionPrimitiveMesh()
     return primitiveMesh;
 }
 
-/// Selection
+/// Picking / 当前交互状态
 
-bool OpenGLViewerWidget::selectObjectAt(const QPoint& position)
+bool OpenGLViewerWidget::pickAt(const QPoint& position)
 {
     const Camera* camera = m_cameraManager.activeCamera();
 
     if (camera == 0)
     {
-        qWarning() << "OpenGLViewerWidget selectObjectAt failed: active camera does not exist.";
+        qWarning() << "OpenGLViewerWidget pickAt failed: active camera does not exist.";
         return false;
     }
 
@@ -897,20 +1010,37 @@ bool OpenGLViewerWidget::selectObjectAt(const QPoint& position)
     if (!camera->screenPointToRay(position.x(), position.y(), width(), height(), rayOrigin, rayDirection))
         return false;
 
+    // Viewer 明确决定本次查询的 Candidate 和 Picking 策略：
+    // 有 Primitive Picker 的 Candidate 只做精确 Primitive Picking；
+    // 没有 Primitive Picker 的 Candidate 才进入 Bounds Fallback。
+    RenderItemCandidates primitiveCandidates;
+    RenderItemCandidates boundsCandidates;
+
+    for (std::size_t i = 0; i < m_pickCandidates.size(); ++i)
+    {
+        RenderItem* candidate = m_pickCandidates[i];
+
+        if (candidate == 0)
+            continue;
+
+        if (candidate->primitivePickSource() != 0)
+            primitiveCandidates.push_back(candidate);
+        else
+            boundsCandidates.push_back(candidate);
+    }
+
     ScenePrimitiveHit primitiveHit;
 
-    // 优先使用精确 Render Primitive Picking。
-    if (m_scene.raycastPrimitive(rayOrigin, rayDirection, primitiveHit, true))
+    if (m_scene.raycastPrimitive(primitiveCandidates, rayOrigin, rayDirection, primitiveHit, true))
     {
-        if (!m_scene.setSelectedItem(primitiveHit.item))
+        if (!setPickedItem(primitiveHit.item))
             return false;
 
-        updateSelectionBoundsMesh();
-        updateSelectionPrimitiveMesh(primitiveHit);
-
         const AxisAlignedBoundingBox bounds = primitiveHit.item->worldBounds();
+        showBoundsHighlight(bounds);
+        showPrimitiveHighlight(primitiveHit.vertices[0], primitiveHit.vertices[1], primitiveHit.vertices[2]);
 
-        qDebug() << "OpenGLViewerWidget Primitive Selection changed:"
+        qDebug() << "OpenGLViewerWidget Primitive Pick changed:"
                  << "Item=" << primitiveHit.item->name()
                  << "PrimitiveIndex=" << primitiveHit.primitiveIndex
                  << "HitDistance=" << primitiveHit.distance
@@ -924,21 +1054,18 @@ bool OpenGLViewerWidget::selectObjectAt(const QPoint& position)
         return true;
     }
 
-    // 没有精确 Primitive 命中时仍保留 Object Picking Fallback，
-    // 但只处理没有 Primitive Picker 的 Item，避免 Triangle Miss 被同一对象 AABB 重新误选中。
     SceneRayHit objectHit;
 
-    if (m_scene.raycast(rayOrigin, rayDirection, objectHit, true, true))
+    if (m_scene.raycast(boundsCandidates, rayOrigin, rayDirection, objectHit, true))
     {
-        if (!m_scene.setSelectedItem(objectHit.item))
+        if (!setPickedItem(objectHit.item))
             return false;
 
-        updateSelectionBoundsMesh();
-        clearPrimitiveSelectionVisual();
-
         const AxisAlignedBoundingBox bounds = objectHit.item->worldBounds();
+        showBoundsHighlight(bounds);
+        clearPrimitiveHighlight();
 
-        qDebug() << "OpenGLViewerWidget Object Selection fallback:"
+        qDebug() << "OpenGLViewerWidget Object Bounds Pick fallback:"
                  << "Item=" << objectHit.item->name()
                  << "HitDistance=" << objectHit.distance
                  << "HitPosition=" << objectHit.position
@@ -950,51 +1077,45 @@ bool OpenGLViewerWidget::selectObjectAt(const QPoint& position)
         return true;
     }
 
-    clearObjectSelection();
+    // Pick Miss 的交互策略由 Viewer 组合：状态和视觉分别显式清除。
+    clearPickedItem();
+    clearBoundsHighlight();
+    clearPrimitiveHighlight();
     viewerStateChanged();
     update();
     return true;
 }
 
-void OpenGLViewerWidget::clearObjectSelection()
+RenderItem* OpenGLViewerWidget::pickedItem()
 {
-    const RenderItem* previousSelection = m_scene.selectedItem();
-
-    if (previousSelection != 0)
-        qDebug() << "OpenGLViewerWidget Selection cleared:" << previousSelection->name();
-
-    m_scene.clearSelection();
-
-    if (m_selectionBoundsItem != 0)
-        m_selectionBoundsItem->setVisible(false);
-
-    clearPrimitiveSelectionVisual();
+    return m_pickedItem;
 }
 
-void OpenGLViewerWidget::refreshSelectionBounds()
+const RenderItem* OpenGLViewerWidget::pickedItem() const
 {
-    updateSelectionBoundsMesh();
+    return m_pickedItem;
 }
 
-void OpenGLViewerWidget::updateSelectionBoundsMesh()
+void OpenGLViewerWidget::clearPickedItem()
 {
-    if (m_selectionBounds == 0 || m_selectionBoundsItem == 0)
-        return;
+    if (m_pickedItem != 0)
+        qDebug() << "OpenGLViewerWidget Picked Item cleared:" << m_pickedItem->name();
 
-    const RenderItem* selectedItem = m_scene.selectedItem();
+    m_pickedItem = 0;
+}
 
-    if (selectedItem == 0 || !selectedItem->hasLocalBounds())
-    {
-        m_selectionBoundsItem->setVisible(false);
-        return;
-    }
+/// Highlight
 
-    const AxisAlignedBoundingBox bounds = selectedItem->worldBounds();
+bool OpenGLViewerWidget::showBoundsHighlight(const AxisAlignedBoundingBox& bounds)
+{
+    if (m_boundsHighlight == 0)
+        return false;
 
     if (!bounds.isValid())
     {
-        m_selectionBoundsItem->setVisible(false);
-        return;
+        qWarning() << "OpenGLViewerWidget showBoundsHighlight failed: bounds are invalid.";
+        clearBoundsHighlight();
+        return false;
     }
 
     const QVector3D& minimum = bounds.minimum();
@@ -1020,54 +1141,63 @@ void OpenGLViewerWidget::updateSelectionBoundsMesh()
         vertices.push_back(corners[i].y());
         vertices.push_back(corners[i].z());
 
-        // 黄色仅作为 Selection 状态语义，不修改被选中对象自己的 Material。
+        // 黄色只表达显式 Bounds Highlight，不修改任何业务对象自己的 Material。
         vertices.push_back(1.0f);
         vertices.push_back(1.0f);
         vertices.push_back(0.0f);
     }
 
-    m_selectionBounds->setVertexData(vertices);
-    m_selectionBoundsItem->transform().reset();
-    m_selectionBoundsItem->setVisible(true);
+    m_boundsHighlight->setVertexData(vertices);
+    m_showBoundsHighlight = true;
+    return true;
 }
 
-void OpenGLViewerWidget::updateSelectionPrimitiveMesh(const ScenePrimitiveHit& hit)
+void OpenGLViewerWidget::clearBoundsHighlight()
 {
-    if (m_selectionPrimitive == 0 || m_selectionPrimitiveItem == 0 || hit.item == 0 || hit.primitiveIndex < 0)
+    m_showBoundsHighlight = false;
+}
+
+bool OpenGLViewerWidget::showPrimitiveHighlight(const QVector3D& vertex0, const QVector3D& vertex1, const QVector3D& vertex2)
+{
+    if (m_primitiveHighlight == 0)
+        return false;
+
+    const QVector3D verticesWorld[] =
     {
-        clearPrimitiveSelectionVisual();
-        return;
-    }
+        vertex0,
+        vertex1,
+        vertex2
+    };
 
     std::vector<GLfloat> vertices;
     vertices.reserve(3 * 6);
 
     for (int i = 0; i < 3; ++i)
     {
-        vertices.push_back(hit.vertices[i].x());
-        vertices.push_back(hit.vertices[i].y());
-        vertices.push_back(hit.vertices[i].z());
+        vertices.push_back(verticesWorld[i].x());
+        vertices.push_back(verticesWorld[i].y());
+        vertices.push_back(verticesWorld[i].z());
 
-        // 精确 Render Triangle 使用橙色，和黄色 Object AABB 区分。
+        // 橙色只表达显式 World Triangle Highlight，不依赖 PrimitiveIndex、Picking Hit 或 Selection。
         vertices.push_back(1.0f);
         vertices.push_back(0.35f);
         vertices.push_back(0.0f);
     }
 
-    if (!m_selectionPrimitive->updateVertexData(0, &vertices[0], static_cast<int>(vertices.size())))
+    if (!m_primitiveHighlight->updateVertexData(0, &vertices[0], static_cast<int>(vertices.size())))
     {
-        qWarning() << "OpenGLViewerWidget updateSelectionPrimitiveMesh failed: unable to update Primitive Overlay.";
-        m_selectionPrimitiveItem->setVisible(false);
-        return;
+        qWarning() << "OpenGLViewerWidget showPrimitiveHighlight failed: unable to update Primitive Highlight.";
+        clearPrimitiveHighlight();
+        return false;
     }
 
-    m_selectionPrimitiveItem->setVisible(true);
+    m_showPrimitiveHighlight = true;
+    return true;
 }
 
-void OpenGLViewerWidget::clearPrimitiveSelectionVisual()
+void OpenGLViewerWidget::clearPrimitiveHighlight()
 {
-    if (m_selectionPrimitiveItem != 0)
-        m_selectionPrimitiveItem->setVisible(false);
+    m_showPrimitiveHighlight = false;
 }
 
 /// Camera
@@ -1079,9 +1209,25 @@ void OpenGLViewerWidget::resetCamera()
     if (camera == 0)
         return;
 
-    // 默认 Camera 位于 X/Y/Z 正方向，适合作为通用三维 Viewer 初始观察方向。
-    camera->setView(QVector3D(8.0f, 5.0f, 9.0f), QVector3D(0.0f, 1.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
-    camera->setPerspective(45.0f, 0.1f, 1000.0f);
+    // Projection 是 Camera 自身属性；视图空间状态全部由 CameraManager 的 View Bounds + Direction 管理。
+    if (!camera->setPerspective(45.0f, 0.1f, 1000.0f))
+        return;
+
+    // Reset 首先恢复 CameraManager 默认原点单位盒。
+    // 旧 Viewer 默认视角 Position=(8,5,9)、Target=(0,1,0)，对应 Forward=(-8,-4,-9)；
+    // 新模型只保留这个观察方向，不再直接设置 Position / Target。
+    m_cameraManager.clearViewBounds();
+
+    const QVector3D defaultForward(-8.0f, -4.0f, -9.0f);
+    const QVector3D defaultUp(0.0f, 1.0f, 0.0f);
+
+    if (!m_cameraManager.setViewDirection(defaultForward, defaultUp))
+        return;
+
+    // 构造阶段也允许基于默认 View Bounds 建立稳定 Camera；
+    // initializeGL() 在 Scene Item 建立后会用真实 Scene Bounds 再执行一次初始 Fit。
+    if (width() > 0 && height() > 0)
+        m_cameraManager.fitViewBounds(width(), height());
 }
 
 bool OpenGLViewerWidget::fitSceneToView()
@@ -1094,7 +1240,7 @@ bool OpenGLViewerWidget::fitSceneToView()
         return false;
     }
 
-    if (!m_cameraManager.fitAll(m_scene, width(), height()))
+    if (!m_cameraManager.fitBounds(bounds, width(), height()))
         return false;
 
     const Camera* camera = m_cameraManager.activeCamera();
@@ -1108,44 +1254,101 @@ bool OpenGLViewerWidget::fitSceneToView()
     return true;
 }
 
-bool OpenGLViewerWidget::fitSelectionToView()
+bool OpenGLViewerWidget::focusPoint(const QVector3D& worldPoint)
 {
-    const RenderItem* selectedItem = m_scene.selectedItem();
+    // CameraManager 会平移整个当前 View Bounds，使其 Center 移到 worldPoint。
+    return m_cameraManager.focusPoint(worldPoint);
+}
 
-    if (selectedItem == 0)
+bool OpenGLViewerWidget::focusBounds(const AxisAlignedBoundingBox& bounds)
+{
+    // 明确 Bounds 直接成为新的 CameraManager View Bounds。
+    return m_cameraManager.focusBounds(bounds);
+}
+
+bool OpenGLViewerWidget::focusItem(const RenderItem* item)
+{
+    if (item == 0)
     {
-        // 没有 Selection 是正常交互状态，不作为程序错误输出 Warning。
-        qDebug() << "OpenGLViewerWidget Fit Selection ignored: no object is selected.";
+        qWarning() << "OpenGLViewerWidget focusItem failed: item is null.";
         return false;
     }
 
-    if (!selectedItem->hasLocalBounds())
+    if (!item->hasLocalBounds())
     {
-        qWarning() << "OpenGLViewerWidget fitSelectionToView failed: selected Item has no Bounds:" << selectedItem->name();
+        qWarning() << "OpenGLViewerWidget focusItem failed: item has no Bounds:" << item->name();
         return false;
     }
 
-    const AxisAlignedBoundingBox bounds = selectedItem->worldBounds();
+    const AxisAlignedBoundingBox bounds = item->worldBounds();
 
     if (!bounds.isValid())
     {
-        qWarning() << "OpenGLViewerWidget fitSelectionToView failed: selected Item World Bounds are invalid:" << selectedItem->name();
+        qWarning() << "OpenGLViewerWidget focusItem failed: item World Bounds are invalid:" << item->name();
         return false;
     }
 
-    if (!m_cameraManager.fitBounds(bounds, width(), height()))
+    return focusBounds(bounds);
+}
+
+bool OpenGLViewerWidget::focusPrimitive(const ScenePrimitiveHit& hit)
+{
+    if (hit.item == 0 || hit.primitiveIndex < 0)
+    {
+        qWarning() << "OpenGLViewerWidget focusPrimitive failed: primitive hit is invalid.";
         return false;
+    }
 
-    const Camera* camera = m_cameraManager.activeCamera();
+    // Render Primitive 当前为 Triangle；几何中心只由三个 World Vertex 决定，不使用鼠标 HitPosition。
+    // focusPoint() 会把当前 View Bounds 整体平移到这个中心，而不是创建一个零尺寸 Point Bounds。
+    const QVector3D center = (hit.vertices[0] + hit.vertices[1] + hit.vertices[2]) / 3.0f;
+    return focusPoint(center);
+}
 
-    qDebug() << "OpenGLViewerWidget Fit Selection:"
-             << "Item=" << selectedItem->name()
-             << "Minimum=" << bounds.minimum()
-             << "Maximum=" << bounds.maximum()
-             << "Center=" << bounds.center()
-             << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
+bool OpenGLViewerWidget::fitBoundsToView(const AxisAlignedBoundingBox& bounds, float margin)
+{
+    return m_cameraManager.fitBounds(bounds, width(), height(), margin);
+}
 
-    return true;
+bool OpenGLViewerWidget::fitItemToView(const RenderItem* item, float margin)
+{
+    if (item == 0)
+    {
+        qWarning() << "OpenGLViewerWidget fitItemToView failed: item is null.";
+        return false;
+    }
+
+    if (!item->hasLocalBounds())
+    {
+        qWarning() << "OpenGLViewerWidget fitItemToView failed: item has no Bounds:" << item->name();
+        return false;
+    }
+
+    const AxisAlignedBoundingBox bounds = item->worldBounds();
+
+    if (!bounds.isValid())
+    {
+        qWarning() << "OpenGLViewerWidget fitItemToView failed: item World Bounds are invalid:" << item->name();
+        return false;
+    }
+
+    return fitBoundsToView(bounds, margin);
+}
+
+bool OpenGLViewerWidget::fitPrimitiveToView(const ScenePrimitiveHit& hit, float margin)
+{
+    if (hit.item == 0 || hit.primitiveIndex < 0)
+    {
+        qWarning() << "OpenGLViewerWidget fitPrimitiveToView failed: primitive hit is invalid.";
+        return false;
+    }
+
+    AxisAlignedBoundingBox bounds;
+    bounds.expandToInclude(hit.vertices[0]);
+    bounds.expandToInclude(hit.vertices[1]);
+    bounds.expandToInclude(hit.vertices[2]);
+
+    return fitBoundsToView(bounds, margin);
 }
 
 void OpenGLViewerWidget::logCameraView(const char* viewName) const
@@ -1157,6 +1360,7 @@ void OpenGLViewerWidget::logCameraView(const char* viewName) const
 
     qDebug() << "OpenGLViewerWidget Standard View:"
              << viewName
+             << "ViewBoundsCenter=" << m_cameraManager.viewBounds().center()
              << "Position=" << camera->position()
              << "Target=" << camera->target()
              << "Forward=" << camera->forward()

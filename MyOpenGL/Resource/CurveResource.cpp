@@ -3,7 +3,7 @@
 #include <QDebug>
 
 CurveResource::CurveResource(const QString& name)
-    : MeshResource(name, ResourceTypeCurve, ResourceUpdateDynamic, MeshPrimitiveLineStrip)
+    : MeshResource(name, ResourceTypeCurve, ResourceUpdateDynamic, LineStrip)
     , m_color(1.0f, 1.0f, 1.0f)
 {
     std::vector<MeshVertexAttribute> attributes;

@@ -8,9 +8,10 @@
 
 class Material;
 class PrimitivePickSource;
-class RenderableMesh;
+class RenderableObject;
 
-/// Scene 中一个可绘制对象。
+/// 用户 Scene 中一个可操作的可绘制对象实例。
+/// RenderableObject / MeshResource 是系统底层渲染资源；RenderItem 将其封装为用户可进行 Transform、Visible、Bounds、Picking 等操作的 Scene 对象。
 /// 不拥有 Mesh、Material 和 PrimitivePickSource，只保存借用引用、局部 Transform、可选 Bounds 和基础显示状态。
 class RenderItem
 {
@@ -21,9 +22,9 @@ public:
     const QString& name() const;
 
     /// 绘制引用
-    const RenderableMesh* mesh() const;
+    const RenderableObject* mesh() const;
     const Material* material() const;
-    void setMesh(const RenderableMesh* mesh);       // 绑定借用的 RenderableMesh；传入 0 表示清除引用。
+    void setMesh(const RenderableObject* mesh);       // 绑定借用的 RenderableObject；传入 0 表示清除引用。
     void setMaterial(const Material* material);     // 绑定借用的 Material；传入 0 表示清除引用。
 
     /// Primitive Picking
@@ -48,8 +49,8 @@ public:
     void setDepthTestEnabled(bool enabled); // 控制当前 Item 的基础 Depth Test；默认开启。
 
 private:
-    QString m_name;                         // 当前 Scene Item 调试名称。
-    const RenderableMesh* m_mesh;           // 当前借用的 Mesh，不拥有该对象。
+    QString m_name;                         // 当前用户 Scene Item 调试名称。
+    const RenderableObject* m_mesh;           // 当前借用的 Mesh，不拥有该对象。
     const Material* m_material;             // 当前借用的 Material，不拥有该对象。
     const PrimitivePickSource* m_primitivePickSource; // 当前借用的 Primitive Picker；0 表示只支持对象级 Bounds Picking。
     Transform m_transform;                  // 当前局部 Model Transform。

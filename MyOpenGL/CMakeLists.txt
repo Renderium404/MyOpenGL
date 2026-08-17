@@ -4,8 +4,8 @@ add_library(MyOpenGLCore STATIC
     Core/ResourceManager.cpp
     Core/ResourceManager.h
 
-    Resource/RenderableMesh.cpp
-    Resource/RenderableMesh.h
+    Resource/RenderableObject.cpp
+    Resource/RenderableObject.h
     Resource/ExternalMeshData.h
     Resource/ExternalMeshDataSource.h
     Resource/ExternalGpuMeshData.h

@@ -24,7 +24,7 @@ class TextureResource;
 
 /// OpenGL 框架功能验证窗口。
 /// 只保留 SandBox 测试模型、External CPU/GPU A/B 数据路径、Worker/Fence 和故障注入；
-/// 通用 Viewer 生命周期、Camera、辅助显示、Picking 与 Selection 由 OpenGLViewerWidget 提供。
+/// 通用 Viewer 生命周期、Camera、Viewer 内部辅助显示、Picking 交互状态与 Highlight 由 OpenGLViewerWidget 提供。
 class OpenGLSandboxWidget : public OpenGLViewerWidget
 {
 public:

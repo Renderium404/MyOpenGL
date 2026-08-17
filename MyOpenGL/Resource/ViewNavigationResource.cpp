@@ -3,7 +3,7 @@
 #include <QDebug>
 
 ViewNavigationResource::ViewNavigationResource(const QString& name)
-    : MeshResource(name, ResourceTypeViewNavigation, ResourceUpdateStatic, MeshPrimitiveLines)
+    : MeshResource(name, ResourceTypeViewNavigation, ResourceUpdateStatic, Lines)
     , m_axisLength(1.0f) // 导航器使用单位局部几何，最终屏幕尺寸由 Renderer 控制。
 {
     rebuildGeometry();

@@ -6,7 +6,7 @@
 #include "Light/LightManager.h"
 #include "Material/Material.h"
 #include "Render/RenderContext.h"
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 #include "Resource/TextureResource.h"
 #include "Scene/RenderItem.h"
 #include "Scene/Scene.h"
@@ -279,7 +279,7 @@ bool Renderer::beginFrame(const Camera* camera, int viewportWidth, int viewportH
     return true;
 }
 
-bool Renderer::drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4& model, bool depthTest)
+bool Renderer::drawVertexColorMesh(const RenderableObject* mesh, const QMatrix4x4& model, bool depthTest)
 {
     if (!m_frameActive)
     {
@@ -293,21 +293,21 @@ bool Renderer::drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4&
         return false;
     }
 
-    if (!mesh->renderMeshInitialized() || mesh->vao() == 0)
+    if (!mesh->objectInitialized() || mesh->vao() == 0)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: mesh GPU resource is not initialized:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawVertexColorMesh failed: mesh GPU resource is not initialized:" << mesh->objectName();
         return false;
     }
 
     if (mesh->indexCount() <= 0)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: mesh contains no indices:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawVertexColorMesh failed: mesh contains no indices:" << mesh->objectName();
         return false;
     }
 
     if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3))
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: position + color layout is required:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawVertexColorMesh failed: position + color layout is required:" << mesh->objectName();
         return false;
     }
 
@@ -344,7 +344,7 @@ bool Renderer::drawVertexColorMesh(const RenderableMesh* mesh, const QMatrix4x4&
     return true;
 }
 
-bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
+bool Renderer::drawLitMesh(const RenderableObject* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
 {
     if (!m_frameActive)
     {
@@ -358,15 +358,15 @@ bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material,
         return false;
     }
 
-    if (!mesh->renderMeshInitialized() || mesh->vao() == 0)
+    if (!mesh->objectInitialized() || mesh->vao() == 0)
     {
-        qWarning() << "Renderer drawLitMesh failed: mesh GPU resource is not initialized:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawLitMesh failed: mesh GPU resource is not initialized:" << mesh->objectName();
         return false;
     }
 
     if (mesh->indexCount() <= 0)
     {
-        qWarning() << "Renderer drawLitMesh failed: mesh contains no indices:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawLitMesh failed: mesh contains no indices:" << mesh->objectName();
         return false;
     }
 
@@ -378,7 +378,7 @@ bool Renderer::drawLitMesh(const RenderableMesh* mesh, const Material* material,
 
     if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3) || !mesh->hasAttribute(2, 2))
     {
-        qWarning() << "Renderer drawLitMesh failed: position + normal + uv layout is required:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawLitMesh failed: position + normal + uv layout is required:" << mesh->objectName();
         return false;
     }
 
@@ -507,7 +507,7 @@ bool Renderer::drawItem(const RenderItem* item, const ResourceManager* resourceM
     if (!item->isVisible())
         return true;
 
-    const RenderableMesh* mesh = item->mesh();
+    const RenderableObject* mesh = item->mesh();
     const Material* material = item->material();
 
     if (mesh == 0 || material == 0)
@@ -559,7 +559,7 @@ bool Renderer::drawScene(const Scene* scene, const ResourceManager* resourceMana
     return true;
 }
 
-bool Renderer::drawViewNavigation(const RenderableMesh* mesh, const Camera* camera)
+bool Renderer::drawViewNavigation(const RenderableObject* mesh, const Camera* camera)
 {
     if (!m_frameActive)
     {
@@ -573,15 +573,15 @@ bool Renderer::drawViewNavigation(const RenderableMesh* mesh, const Camera* came
         return false;
     }
 
-    if (!mesh->renderMeshInitialized() || mesh->vao() == 0)
+    if (!mesh->objectInitialized() || mesh->vao() == 0)
     {
-        qWarning() << "Renderer drawViewNavigation failed: mesh GPU resource is not initialized:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawViewNavigation failed: mesh GPU resource is not initialized:" << mesh->objectName();
         return false;
     }
 
     if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3))
     {
-        qWarning() << "Renderer drawViewNavigation failed: position + color layout is required:" << mesh->renderMeshName();
+        qWarning() << "Renderer drawViewNavigation failed: position + color layout is required:" << mesh->objectName();
         return false;
     }
 
@@ -654,15 +654,15 @@ void Renderer::endFrame()
 
 /// 内部辅助
 
-GLenum Renderer::primitiveMode(const RenderableMesh* mesh) const
+GLenum Renderer::primitiveMode(const RenderableObject* mesh) const
 {
-    switch (mesh->primitiveType())
+    switch (mesh->renderType())
     {
-    case MeshPrimitiveTriangles:
+    case Triangles:
         return GL_TRIANGLES;
-    case MeshPrimitiveLines:
+    case Lines:
         return GL_LINES;
-    case MeshPrimitiveLineStrip:
+    case LineStrip:
         return GL_LINE_STRIP;
     }
 

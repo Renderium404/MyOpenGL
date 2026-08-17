@@ -4,7 +4,7 @@
 #include "Core/Resource.h"
 #include "Resource/ExternalGpuMeshData.h"
 #include "Resource/ExternalGpuMeshDataSource.h"
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 
 #include <QOpenGLFunctions_3_3_Core>
 
@@ -12,7 +12,7 @@
 
 /// 外部 GPU Mesh 的轻量渲染包装。
 /// MyOpenGL 只拥有 VAO，不拥有也不修改外部 VBO / EBO；Buffer 内容变化不会产生 MyOpenGL DirtyState。
-class ExternalGpuMeshResource : public Resource, public RenderableMesh
+class ExternalGpuMeshResource : public Resource, public RenderableObject
 {
 public:
     explicit ExternalGpuMeshResource(const QString& name = "ExternalGpuMesh");
@@ -31,12 +31,12 @@ public:
     ExternalGpuMeshRevision synchronizedStructureRevision() const; // 获取当前 VAO 已经成功绑定的外部 GPU Structure Revision。
 
     /// Renderer 接口
-    const QString& renderMeshName() const override;
-    bool renderMeshInitialized() const override;
+    const QString& objectName() const override;
+    bool objectInitialized() const override;
     GLuint vao() const override;
     int indexCount() const override;
     GLenum indexType() const override;
-    MeshPrimitiveType primitiveType() const override;
+    RenderType renderType() const override;
     bool hasAttribute(GLuint location, GLint componentCount) const override;
 
     /// 绘制同步

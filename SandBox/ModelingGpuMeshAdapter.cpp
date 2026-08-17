@@ -48,7 +48,7 @@ bool ModelingGpuMeshAdapter::gpuView(ExternalGpuMeshView& view) const
     view.vertexBuffers.clear();
     view.attributes.clear();
 
-    view.primitiveType = MeshPrimitiveTriangles;
+    view.renderType = Triangles;
 
     ExternalGpuVertexBufferView positionBuffer;
     positionBuffer.bufferId = m_mesh->positionBuffer();

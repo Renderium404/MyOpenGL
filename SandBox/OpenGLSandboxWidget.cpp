@@ -443,6 +443,7 @@ void OpenGLSandboxWidget::buildViewerContentItems()
         // Cube 边长为 2，局部 Bounds 固定为 [-1, +1]；向上移动 1 个单位后底面位于 Y=0。
         m_cubeItem->setLocalBounds(AxisAlignedBoundingBox(QVector3D(-1.0f, -1.0f, -1.0f), QVector3D(1.0f, 1.0f, 1.0f)));
         m_cubeItem->transform().setPosition(QVector3D(0.0f, 1.0f, 0.0f));
+        addPickCandidate(m_cubeItem);
     }
 
     if (m_externalMesh != 0 && m_cubeMaterial != 0)
@@ -452,6 +453,7 @@ void OpenGLSandboxWidget::buildViewerContentItems()
         m_externalMeshItem->setMaterial(m_cubeMaterial);
         m_externalMeshItem->setPrimitivePickSource(m_externalCpuPrimitivePicker);
         m_externalMeshItem->transform().setPosition(QVector3D(3.5f, 0.0f, 0.0f));
+        addPickCandidate(m_externalMeshItem);
     }
 
     if (m_externalGpuMesh != 0 && m_cubeMaterial != 0)
@@ -461,9 +463,11 @@ void OpenGLSandboxWidget::buildViewerContentItems()
         m_externalGpuMeshItem->setMaterial(m_cubeMaterial);
         m_externalGpuMeshItem->setPrimitivePickSource(m_externalGpuPrimitivePicker);
         m_externalGpuMeshItem->transform().setPosition(QVector3D(-3.5f, 0.0f, 0.0f));
+        addPickCandidate(m_externalGpuMeshItem);
     }
 
-    // SandBox 的三个测试模型才提供 Scene Bounds / Picking；Viewer Grid / Axis / Overlay 不参与。
+    // SandBox 的三个测试模型就是当前 User Scene 的三个 RenderItem，并显式注册为 Picking Candidate。
+    // Viewer Grid / Axis / Camera Target / Highlight / ViewNavigation 不进入 Scene；Scene Bounds 只聚合用户 Item。
     updateExternalRenderItemBounds();
 }
 
@@ -648,11 +652,12 @@ void OpenGLSandboxWidget::updateExternalRenderItemBounds()
     if (m_externalGpuMeshItem != 0)
         m_externalGpuMeshItem->setLocalBounds(bounds);
 
-    // 当前 Selection 只有指向 External Item 时，World AABB 才需要随 Modeling 数据同步更新。
-    const RenderItem* selectedItem = scene().selectedItem();
+    // 当前 Viewer Pick 只有指向 External Item 时，黄色 Bounds Highlight 才需要随 Modeling 数据同步更新。
+    // Highlight 基础能力仍只接收明确 World Bounds，不自行查询 Picking 状态。
+    const RenderItem* currentPickedItem = pickedItem();
 
-    if (selectedItem == m_externalMeshItem || selectedItem == m_externalGpuMeshItem)
-        refreshSelectionBounds();
+    if (currentPickedItem == m_externalMeshItem || currentPickedItem == m_externalGpuMeshItem)
+        showBoundsHighlight(currentPickedItem->worldBounds());
 }
 
 
@@ -758,7 +763,7 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
 
 MeshResource* OpenGLSandboxWidget::createCube()
 {
-    MeshResource* cube = new MeshResource("LitCube", ResourceUpdateStatic, MeshPrimitiveTriangles);
+    MeshResource* cube = new MeshResource("LitCube", ResourceUpdateStatic, Triangles);
 
     std::vector<MeshVertexAttribute> attributes;
 
@@ -888,8 +893,8 @@ bool OpenGLSandboxWidget::applyMatchedContentChange()
     // 两条 External Path 的源数据已经验证一致，因此两个 Scene Item 使用同一份 Local Bounds。
     updateExternalRenderItemBounds();
 
-    // Primitive Triangle 顶点可能已经变化；保留对象 Selection，但要求下一次 Click 重新取得精确 Primitive Hit。
-    clearPrimitiveSelectionVisual();
+    // Primitive Triangle 顶点可能已经变化；保留当前 Picked Item，但清除旧 Primitive Highlight，要求下一次 Click 重新取得明确 Triangle。
+    clearPrimitiveHighlight();
 
     return syncExternalGpuWorker("M Content Change");
 }
@@ -920,8 +925,8 @@ bool OpenGLSandboxWidget::rebuildMatchedExternalMeshes()
 
     updateExternalRenderItemBounds();
 
-    // Topology / Width 重建后旧 PrimitiveIndex 或 Triangle Vertex 不再作为当前精确命中证据。
-    clearPrimitiveSelectionVisual();
+    // Topology / Width 重建后旧 Triangle Vertex 不再作为当前 Primitive Highlight 的有效几何输入。
+    clearPrimitiveHighlight();
 
     return syncExternalGpuWorker("Structure Change");
 }
@@ -1097,10 +1102,10 @@ void OpenGLSandboxWidget::updateWindowTitle()
             .arg(camera->nearPlane(), 0, 'f', 3);
     }
 
-    const RenderItem* selectedItem = scene().selectedItem();
-    cameraText += QString(" Sel:%1").arg(selectedItem != 0 ? selectedItem->name() : "None");
+    const RenderItem* currentPickedItem = pickedItem();
+    cameraText += QString(" Pick:%1").arg(currentPickedItem != 0 ? currentPickedItem->name() : "None");
 
-    setWindowTitle(QString("OpenGL SandBox | Viewer Module + Test Harness | %1 | Click Select | Left Drag Orbit | Esc Clear | F Fit Selection | 1 Front | 2 Back | 3 Left | 4 Right | 5 Top | 6 Bottom | 7 Iso | H Fit All | M Matched Content | B Width:%2 | K Topology:%3 | P Replace GPU Buffers | X Resource Rollback | R Reset | O Origin | C Target:%4 | G Grid:%5 | A Axis:%6 | V Gizmo:%7 | L Light:%8 | T Texture:%9")
+    setWindowTitle(QString("OpenGL SandBox | Viewer Module + Test Harness | %1 | Click Pick | Left Drag Orbit | Esc Clear Pick | F Fit Picked | 1 Front | 2 Back | 3 Left | 4 Right | 5 Top | 6 Bottom | 7 Iso | H Fit All | M Matched Content | B Width:%2 | K Topology:%3 | P Replace GPU Buffers | X Resource Rollback | R Reset | O Origin | C Target:%4 | G Grid:%5 | A Axis:%6 | V Gizmo:%7 | L Light:%8 | T Texture:%9")
         .arg(cameraText)
         .arg(m_externalWide ? "Wide" : "Narrow")
         .arg(m_externalSplit ? "Split" : "Quad")

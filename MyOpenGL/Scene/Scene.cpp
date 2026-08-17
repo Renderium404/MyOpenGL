@@ -27,7 +27,6 @@ SceneRayHit::SceneRayHit()
 }
 
 Scene::Scene()
-    : m_selectedItem(0)
 {
 }
 
@@ -61,9 +60,6 @@ bool Scene::removeItem(RenderItem* item)
         return false;
     }
 
-    if (m_selectedItem == item)
-        m_selectedItem = 0;
-
     delete *it;
     m_items.erase(it);
     return true;
@@ -75,7 +71,6 @@ void Scene::clear()
         delete m_items[i];
 
     m_items.clear();
-    m_selectedItem = 0;
 }
 
 /// Item 查询
@@ -133,30 +128,32 @@ bool Scene::worldBounds(AxisAlignedBoundingBox& bounds, bool visibleOnly) const
 }
 
 
-/// Picking / Selection
+/// Picking
 
-bool Scene::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, SceneRayHit& hit, bool visibleOnly, bool skipPrimitivePickable)
+bool Scene::raycast(const RenderItemCandidates& candidates, const QVector3D& rayOrigin, const QVector3D& rayDirection, SceneRayHit& hit, bool visibleOnly)
 {
     hit = SceneRayHit();
 
     float nearestDistance = FLT_MAX;
 
-    for (std::size_t i = 0; i < m_items.size(); ++i)
+    for (std::size_t i = 0; i < candidates.size(); ++i)
     {
-        RenderItem* currentItem = m_items[i];
+        RenderItem* currentItem = candidates[i];
 
         if (currentItem == 0)
             continue;
 
+        // Scene 查询只接受属于当前 Scene 的明确 Candidate。
+        // 这里先比较指针归属，不解引用非法 Candidate。
+        if (std::find(m_items.begin(), m_items.end(), currentItem) == m_items.end())
+        {
+            qWarning() << "Scene raycast ignored: candidate does not belong to this Scene.";
+            continue;
+        }
+
         if (visibleOnly && !currentItem->isVisible())
             continue;
 
-        // 精确 Primitive Picking 失败后的 Fallback 只处理没有 Primitive Picker 的 Item，
-        // 避免 Ray 没有命中 Triangle 却因为落在同一对象 AABB 内而产生误选择。
-        if (skipPrimitivePickable && currentItem->primitivePickSource() != 0)
-            continue;
-
-        // 第一版对象 Picking 与 Fit All 使用同一个明确边界：没有 Local Bounds 的辅助 Item 不参与命中。
         if (!currentItem->hasLocalBounds())
             continue;
 
@@ -178,7 +175,7 @@ bool Scene::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, S
     return hit.item != 0;
 }
 
-bool Scene::raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDirection, ScenePrimitiveHit& hit, bool visibleOnly)
+bool Scene::raycastPrimitive(const RenderItemCandidates& candidates, const QVector3D& rayOrigin, const QVector3D& rayDirection, ScenePrimitiveHit& hit, bool visibleOnly)
 {
     hit = ScenePrimitiveHit();
 
@@ -193,12 +190,18 @@ bool Scene::raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDir
     const QVector3D worldDirection = rayDirection.normalized();
     float nearestDistance = FLT_MAX;
 
-    for (std::size_t i = 0; i < m_items.size(); ++i)
+    for (std::size_t i = 0; i < candidates.size(); ++i)
     {
-        RenderItem* currentItem = m_items[i];
+        RenderItem* currentItem = candidates[i];
 
         if (currentItem == 0)
             continue;
+
+        if (std::find(m_items.begin(), m_items.end(), currentItem) == m_items.end())
+        {
+            qWarning() << "Scene raycastPrimitive ignored: candidate does not belong to this Scene.";
+            continue;
+        }
 
         if (visibleOnly && !currentItem->isVisible())
             continue;
@@ -254,37 +257,4 @@ bool Scene::raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDir
     }
 
     return hit.item != 0;
-}
-
-RenderItem* Scene::selectedItem()
-{
-    return m_selectedItem;
-}
-
-const RenderItem* Scene::selectedItem() const
-{
-    return m_selectedItem;
-}
-
-bool Scene::setSelectedItem(RenderItem* item)
-{
-    if (item == 0)
-    {
-        qWarning() << "Scene setSelectedItem failed: item is null; use clearSelection() to clear current Selection.";
-        return false;
-    }
-
-    if (std::find(m_items.begin(), m_items.end(), item) == m_items.end())
-    {
-        qWarning() << "Scene setSelectedItem failed: item does not belong to this Scene:" << item->name();
-        return false;
-    }
-
-    m_selectedItem = item;
-    return true;
-}
-
-void Scene::clearSelection()
-{
-    m_selectedItem = 0;
 }

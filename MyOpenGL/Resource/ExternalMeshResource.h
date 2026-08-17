@@ -4,7 +4,7 @@
 #include "Core/Resource.h"
 #include "Resource/ExternalMeshData.h"
 #include "Resource/ExternalMeshDataSource.h"
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 
 #include <QOpenGLFunctions_3_3_Core>
 
@@ -37,7 +37,7 @@ struct ExternalMeshSyncStatistics
 
 /// 外部建模网格对应的 GPU Cache。
 /// CPU 数据始终属于外部建模库，本 Resource 只借用 DataView 并维护 VAO / VBO / EBO。
-class ExternalMeshResource : public Resource, public RenderableMesh
+class ExternalMeshResource : public Resource, public RenderableObject
 {
 public:
     explicit ExternalMeshResource(const QString& name = "ExternalMesh", ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic);
@@ -65,12 +65,12 @@ public:
     void resetSyncStatistics();                               // 清零调试统计，不改变 GPU Resource 和 DirtyState。
 
     /// Renderer 接口
-    const QString& renderMeshName() const override;
-    bool renderMeshInitialized() const override;
+    const QString& objectName() const override;
+    bool objectInitialized() const override;
     GLuint vao() const override;
     int indexCount() const override;
     GLenum indexType() const override;
-    MeshPrimitiveType primitiveType() const override;
+    RenderType renderType() const override;
     bool hasAttribute(GLuint location, GLint componentCount) const override;
 
 protected:

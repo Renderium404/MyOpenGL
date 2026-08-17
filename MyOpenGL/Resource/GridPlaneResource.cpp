@@ -3,7 +3,7 @@
 #include <QDebug>
 
 GridPlaneResource::GridPlaneResource(const QString& name)
-    : MeshResource(name, ResourceTypeGridPlane, ResourceUpdateStatic, MeshPrimitiveLines)
+    : MeshResource(name, ResourceTypeGridPlane, ResourceUpdateStatic, Lines)
     , m_orientation(GridPlaneXZ)
     , m_halfSize(10.0f) // 默认网格覆盖 -10 到 +10，共 20 个局部坐标单位。
     , m_spacing(1.0f)   // 默认每 1 个局部坐标单位生成一条平行网格线。

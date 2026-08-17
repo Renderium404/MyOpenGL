@@ -19,7 +19,7 @@ const QString& RenderItem::name() const
 
 /// 绘制引用
 
-const RenderableMesh* RenderItem::mesh() const
+const RenderableObject* RenderItem::mesh() const
 {
     return m_mesh;
 }
@@ -29,7 +29,7 @@ const Material* RenderItem::material() const
     return m_material;
 }
 
-void RenderItem::setMesh(const RenderableMesh* mesh)
+void RenderItem::setMesh(const RenderableObject* mesh)
 {
     m_mesh = mesh;
 }

@@ -3,7 +3,7 @@
 #include <QDebug>
 
 CoordinateSystemResource::CoordinateSystemResource(const QString& name)
-    : MeshResource(name, ResourceTypeCoordinateSystem, ResourceUpdateStatic, MeshPrimitiveLines)
+    : MeshResource(name, ResourceTypeCoordinateSystem, ResourceUpdateStatic, Lines)
     , m_axisLength(1.0f) // 默认单位坐标系，每个轴从原点延伸 1 个局部坐标单位。
 {
     rebuildGeometry();

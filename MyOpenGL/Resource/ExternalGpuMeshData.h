@@ -1,7 +1,7 @@
 #ifndef EXTERNALGPUMESHDATA_H
 #define EXTERNALGPUMESHDATA_H
 
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 
 #include <QOpenGLFunctions_3_3_Core>
 
@@ -41,7 +41,7 @@ struct ExternalGpuIndexBufferView
 /// 所有 Buffer 必须属于当前 OpenGL Context，或者属于与当前 Context 共享对象的 Share Group。
 struct ExternalGpuMeshView
 {
-    MeshPrimitiveType primitiveType;                         // 当前网格图元类型。
+    RenderType renderType;                         // 当前网格图元类型。
     std::vector<ExternalGpuVertexBufferView> vertexBuffers;  // 外部 GPU Vertex Streams。
     std::vector<ExternalGpuVertexAttribute> attributes;      // Shader Attribute 到外部 VBO 的映射。
     ExternalGpuIndexBufferView indices;                      // 外部 GPU Index Buffer。

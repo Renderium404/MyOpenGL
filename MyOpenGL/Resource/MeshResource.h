@@ -2,7 +2,7 @@
 #define MESHRESOURCE_H
 
 #include "Core/Resource.h"
-#include "Resource/RenderableMesh.h"
+#include "Resource/RenderableObject.h"
 
 #include <QOpenGLFunctions_3_3_Core>
 
@@ -20,14 +20,14 @@ struct MeshVertexAttribute
 
 /// MyOpenGL 自有 CPU 数据的网格资源。
 /// 使用一个 Interleaved VBO 和一个 EBO，适合辅助几何、Curve 和库内生成的小型 Mesh。
-class MeshResource : public Resource, public RenderableMesh
+class MeshResource : public Resource, public RenderableObject
 {
 public:
-    MeshResource(const QString& name, ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic, MeshPrimitiveType primitiveType = MeshPrimitiveTriangles);
+    MeshResource(const QString& name, ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic, RenderType renderType = Triangles);
     ~MeshResource() override;
 
     /// Mesh 基本信息
-    MeshPrimitiveType primitiveType() const override;
+    RenderType renderType() const override;
 
     /// 顶点布局
     void setVertexLayout(int valuesPerVertex, const std::vector<MeshVertexAttribute>& attributes);
@@ -52,13 +52,13 @@ public:
     GLuint ebo() const;
 
     /// Renderer 接口
-    const QString& renderMeshName() const override;
-    bool renderMeshInitialized() const override;
+    const QString& objectName() const override;
+    bool objectInitialized() const override;
     GLenum indexType() const override;
     bool hasAttribute(GLuint location, GLint componentCount) const override;
 
 protected:
-    MeshResource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy, MeshPrimitiveType primitiveType);
+    MeshResource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy, RenderType renderType);
 
     /// Resource GPU 实现
     bool onInitializeGL(QOpenGLFunctions_3_3_Core* gl) override;
@@ -83,7 +83,7 @@ private:
     GLuint m_vao;                                      // 当前 Mesh VAO。
     GLuint m_vbo;                                      // 当前 Interleaved Vertex Buffer。
     GLuint m_ebo;                                      // 当前 Index Buffer。
-    MeshPrimitiveType m_primitiveType;                 // 当前网格绘制图元。
+    RenderType m_primitiveType;                 // 当前网格绘制图元。
     int m_valuesPerVertex;                             // 一个 Vertex 包含的 GLfloat 数量。
     std::vector<MeshVertexAttribute> m_attributes;     // 当前 Vertex Layout。
     std::vector<GLuint> m_enabledAttributeLocations;   // 当前 VAO 已启用的 Attribute Location。
