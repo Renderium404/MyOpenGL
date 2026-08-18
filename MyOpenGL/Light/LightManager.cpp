@@ -55,6 +55,7 @@ const Light* LightManager::get(LightId id) const
 
     return it->second;
 }
+
 const Light* LightManager::firstEnabledDirectionalLight() const
 {
     LightMap::const_iterator it = m_lights.begin();
@@ -71,6 +72,25 @@ const Light* LightManager::firstEnabledDirectionalLight() const
 
     return 0;
 }
+
+void LightManager::enabledLights(std::vector<const Light*>& lights) const
+{
+    lights.clear();
+    lights.reserve(m_lights.size());
+
+    LightMap::const_iterator it = m_lights.begin();
+
+    while (it != m_lights.end())
+    {
+        const Light* light = it->second;
+
+        if (light != 0 && light->isEnabled())
+            lights.push_back(light);
+
+        ++it;
+    }
+}
+
 bool LightManager::contains(LightId id) const
 {
     return m_lights.find(id) != m_lights.end();

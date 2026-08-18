@@ -188,18 +188,10 @@ const char* resourceTypeName(ResourceType type)
 {
     switch (type)
     {
-    case ResourceTypeMesh:
-        return "Mesh";
+    case ResourceTypeGeometry:
+        return "Geometry";
     case ResourceTypeTexture:
         return "Texture";
-    case ResourceTypeCurve:
-        return "Curve";
-    case ResourceTypeCoordinateSystem:
-        return "CoordinateSystem";
-    case ResourceTypeViewNavigation:
-        return "ViewNavigation";
-    case ResourceTypeGridPlane:
-        return "GridPlane";
     }
 
     return "Unknown";

@@ -14,17 +14,143 @@
 #include "Camera/Camera.h"
 #include "Light/Light.h"
 #include "Material/Material.h"
-#include "Resource/ExternalGpuMeshResource.h"
-#include "Resource/ExternalMeshResource.h"
-#include "Resource/MeshResource.h"
-#include "Resource/TextureResource.h"
+#include "Resource/ExternalGpuGeometry.h"
+#include "Resource/ExternalGeometry.h"
+#include "Resource/BufferGeometry.h"
+#include "Resource/Curve.h"
+#include "Resource/Texture.h"
 #include "Scene/AxisAlignedBoundingBox.h"
-#include "Scene/MeshResourcePrimitivePickSource.h"
+#include "Scene/BufferGeometryPickSource.h"
 #include "Scene/PrimitivePicking.h"
 #include "Scene/RenderItem.h"
+#include "Scene/RenderPart.h"
+#include "Scene/RenderPartUpdate.h"
 
 namespace
 {
+
+const RenderPartId MultiPartId101 = static_cast<RenderPartId>(101);
+const RenderPartId MultiPartId102 = static_cast<RenderPartId>(102);
+const RenderPartId MultiPartId103 = static_cast<RenderPartId>(103);
+const RenderPartId MultiPartId104 = static_cast<RenderPartId>(104);
+
+const QVector3D MultiPartCenter101(-2.4f, 0.0f, 0.0f);
+const QVector3D MultiPartCenter102( 2.4f, 0.0f, 0.0f);
+const QVector3D MultiPartCenter103( 0.0f, 0.0f, 0.0f);
+const QVector3D MultiPartCenter103Replacement(1.8f, 1.2f, 0.0f);
+const QVector3D MultiPartCenter104(3.6f, -0.4f, 0.0f);
+const float MultiPartHalfExtent = 0.6f; // 每个验证 Box 边长为 1.2，彼此分离以便独立 Picking。
+
+AxisAlignedBoundingBox multiPartBoxBounds(const QVector3D& center)
+{
+    const QVector3D extent(MultiPartHalfExtent, MultiPartHalfExtent, MultiPartHalfExtent);
+    return AxisAlignedBoundingBox(center - extent, center + extent);
+}
+
+BufferGeometry* createMultiPartBoxGeometry(const QString& name, const QVector3D& center)
+{
+    BufferGeometry* geometry = new BufferGeometry(name, ResourceUpdateStatic, Triangles);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute positionAttribute;
+    positionAttribute.location = 0;
+    positionAttribute.componentCount = 3;
+    positionAttribute.valueOffset = 0;
+    attributes.push_back(positionAttribute);
+
+    GeometryVertexAttribute normalAttribute;
+    normalAttribute.location = 1;
+    normalAttribute.componentCount = 3;
+    normalAttribute.valueOffset = 3;
+    attributes.push_back(normalAttribute);
+
+    GeometryVertexAttribute uvAttribute;
+    uvAttribute.location = 2;
+    uvAttribute.componentCount = 2;
+    uvAttribute.valueOffset = 6;
+    attributes.push_back(uvAttribute);
+
+    // 与 SandBox LitCube 保持相同 Lit Vertex Layout：position3 + normal3 + uv2。
+    geometry->setVertexLayout(8, attributes);
+
+    const float h = MultiPartHalfExtent;
+    const float cx = center.x();
+    const float cy = center.y();
+    const float cz = center.z();
+
+    const GLfloat vertices[] =
+    {
+        // Front +Z
+        cx-h, cy-h, cz+h,    0.0f,  0.0f,  1.0f,    0.0f, 0.0f,
+        cx+h, cy-h, cz+h,    0.0f,  0.0f,  1.0f,    1.0f, 0.0f,
+        cx+h, cy+h, cz+h,    0.0f,  0.0f,  1.0f,    1.0f, 1.0f,
+        cx-h, cy+h, cz+h,    0.0f,  0.0f,  1.0f,    0.0f, 1.0f,
+
+        // Back -Z
+        cx+h, cy-h, cz-h,    0.0f,  0.0f, -1.0f,    0.0f, 0.0f,
+        cx-h, cy-h, cz-h,    0.0f,  0.0f, -1.0f,    1.0f, 0.0f,
+        cx-h, cy+h, cz-h,    0.0f,  0.0f, -1.0f,    1.0f, 1.0f,
+        cx+h, cy+h, cz-h,    0.0f,  0.0f, -1.0f,    0.0f, 1.0f,
+
+        // Right +X
+        cx+h, cy-h, cz+h,    1.0f,  0.0f,  0.0f,    0.0f, 0.0f,
+        cx+h, cy-h, cz-h,    1.0f,  0.0f,  0.0f,    1.0f, 0.0f,
+        cx+h, cy+h, cz-h,    1.0f,  0.0f,  0.0f,    1.0f, 1.0f,
+        cx+h, cy+h, cz+h,    1.0f,  0.0f,  0.0f,    0.0f, 1.0f,
+
+        // Left -X
+        cx-h, cy-h, cz-h,   -1.0f,  0.0f,  0.0f,    0.0f, 0.0f,
+        cx-h, cy-h, cz+h,   -1.0f,  0.0f,  0.0f,    1.0f, 0.0f,
+        cx-h, cy+h, cz+h,   -1.0f,  0.0f,  0.0f,    1.0f, 1.0f,
+        cx-h, cy+h, cz-h,   -1.0f,  0.0f,  0.0f,    0.0f, 1.0f,
+
+        // Top +Y
+        cx-h, cy+h, cz+h,    0.0f,  1.0f,  0.0f,    0.0f, 0.0f,
+        cx+h, cy+h, cz+h,    0.0f,  1.0f,  0.0f,    1.0f, 0.0f,
+        cx+h, cy+h, cz-h,    0.0f,  1.0f,  0.0f,    1.0f, 1.0f,
+        cx-h, cy+h, cz-h,    0.0f,  1.0f,  0.0f,    0.0f, 1.0f,
+
+        // Bottom -Y
+        cx-h, cy-h, cz-h,    0.0f, -1.0f,  0.0f,    0.0f, 0.0f,
+        cx+h, cy-h, cz-h,    0.0f, -1.0f,  0.0f,    1.0f, 0.0f,
+        cx+h, cy-h, cz+h,    0.0f, -1.0f,  0.0f,    1.0f, 1.0f,
+        cx-h, cy-h, cz+h,    0.0f, -1.0f,  0.0f,    0.0f, 1.0f
+    };
+
+    const GLuint indices[] =
+    {
+         0,  1,  2,   0,  2,  3,
+         4,  5,  6,   4,  6,  7,
+         8,  9, 10,   8, 10, 11,
+        12, 13, 14,  12, 14, 15,
+        16, 17, 18,  16, 18, 19,
+        20, 21, 22,  20, 22, 23
+    };
+
+    geometry->setVertexData(std::vector<GLfloat>(vertices, vertices + sizeof(vertices) / sizeof(vertices[0])));
+    geometry->setIndexData(std::vector<GLuint>(indices, indices + sizeof(indices) / sizeof(indices[0])));
+    return geometry;
+}
+
+bool itemHasTriangleGeometry(const RenderItem* item)
+{
+    if (item == 0)
+        return false;
+
+    for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
+    {
+        const RenderPart* currentPart = item->partAt(partIndex);
+
+        if (currentPart != 0 && currentPart->geometry() != 0 &&
+            currentPart->geometry()->renderType() == Triangles)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
 
 /// SandBox ModelingMesh Primitive Picker。
 /// External CPU / GPU 两条路径各自绑定对应 ModelingMesh，因此 Picking 不依赖任何 GPU Readback。
@@ -36,7 +162,7 @@ public:
     {
     }
 
-    bool raycastPrimitive(const QVector3D& rayOrigin, const QVector3D& rayDirection, PrimitivePickHit& hit) const override
+    bool pickPrimitive(const PrimitivePickContext& context, PrimitivePickHit& hit) const override
     {
         if (m_mesh == 0)
             return false;
@@ -47,7 +173,7 @@ public:
         if (positions.empty() || indices.empty())
             return false;
 
-        TriangleMeshPickView view;
+        TrianglePickView view;
         view.vertexData = &positions[0];
         view.vertexByteSize = positions.size() * sizeof(ModelingPoint);
         view.vertexCount = static_cast<int>(positions.size());
@@ -59,7 +185,33 @@ public:
         view.indexCount = static_cast<int>(indices.size());
         view.indexType = GL_UNSIGNED_INT;
 
-        return raycastTriangleMesh(view, rayOrigin, rayDirection, hit);
+        return raycastTriangles(view, context.rayOrigin, context.rayDirection, hit);
+    }
+
+    bool pickPoint(const PrimitivePickContext& context, PointPickHit& hit) const override
+    {
+        if (m_mesh == 0)
+            return false;
+
+        const std::vector<ModelingPoint>& positions = m_mesh->positions();
+        const std::vector<std::uint32_t>& indices = m_mesh->indices();
+
+        if (positions.empty() || indices.empty())
+            return false;
+
+        PointPickView view;
+        view.vertexData = &positions[0];
+        view.vertexByteSize = positions.size() * sizeof(ModelingPoint);
+        view.vertexCount = static_cast<int>(positions.size());
+        view.vertexStride = sizeof(ModelingPoint);
+        view.positionByteOffset = 0;
+        view.positionType = GL_DOUBLE;
+        view.indexData = &indices[0];
+        view.indexByteSize = indices.size() * sizeof(std::uint32_t);
+        view.indexCount = static_cast<int>(indices.size());
+        view.indexType = GL_UNSIGNED_INT;
+
+        return pickPoints(view, context, hit);
     }
 
 private:
@@ -74,7 +226,8 @@ class SandboxFaultResource : public Resource
 {
 public:
     SandboxFaultResource()
-        : Resource("SandboxFaultResource", ResourceTypeMesh, ResourceUpdateStatic)
+        // 该对象只测试 Resource GPU 生命周期；使用 Geometry 类别，不参与 Renderer Draw。
+        : Resource("SandboxFaultResource", ResourceTypeGeometry, ResourceUpdateStatic)
         , m_buffer(0)
         , m_initializeAttempt(0)
         , m_failNextInitialize(true)
@@ -374,20 +527,40 @@ OpenGLSandboxWidget::OpenGLSandboxWidget(QWidget* parent)
     , m_externalGpuContext(0)
     , m_externalGpuSurface(0)
     , m_cube(0)
-    , m_externalMesh(0)
-    , m_externalGpuMesh(0)
+    , m_curve(0)
+    , m_multiPartGeometry101(0)
+    , m_multiPartGeometry102(0)
+    , m_multiPartGeometry103(0)
+    , m_multiPartGeometry103Replacement(0)
+    , m_multiPartGeometry104(0)
+    , m_externalGeometry(0)
+    , m_externalGpuGeometry(0)
     , m_cubeTexture(0)
     , m_cubeMaterial(0)
+    , m_curveMaterial(0)
     , m_sun(0)
+    , m_fillLight(0)
+    , m_pointLight(0)
+    , m_spotLight(0)
     , m_cubeTextureId(InvalidResourceId)
     , m_cubeItem(0)
-    , m_externalMeshItem(0)
-    , m_externalGpuMeshItem(0)
+    , m_curveItem(0)
+    , m_multiPartItem(0)
+    , m_externalGeometryItem(0)
+    , m_externalGpuGeometryItem(0)
     , m_cubePrimitivePicker(0)
+    , m_curvePrimitivePicker(0)
+    , m_multiPartPicker101(0)
+    , m_multiPartPicker102(0)
+    , m_multiPartPicker103(0)
+    , m_multiPartPicker103Replacement(0)
+    , m_multiPartPicker104(0)
     , m_externalCpuPrimitivePicker(0)
     , m_externalGpuPrimitivePicker(0)
     , m_externalWide(false)
     , m_externalSplit(false)
+    , m_lightPreset(1)
+    , m_multiPartState(0)
 {
     buildSandboxContent();
     updateWindowTitle();
@@ -403,10 +576,22 @@ OpenGLSandboxWidget::~OpenGLSandboxWidget()
     scene().clear();
 
     delete m_cubePrimitivePicker;
+    delete m_curvePrimitivePicker;
+    delete m_multiPartPicker101;
+    delete m_multiPartPicker102;
+    delete m_multiPartPicker103;
+    delete m_multiPartPicker103Replacement;
+    delete m_multiPartPicker104;
     delete m_externalCpuPrimitivePicker;
     delete m_externalGpuPrimitivePicker;
 
     m_cubePrimitivePicker = 0;
+    m_curvePrimitivePicker = 0;
+    m_multiPartPicker101 = 0;
+    m_multiPartPicker102 = 0;
+    m_multiPartPicker103 = 0;
+    m_multiPartPicker103Replacement = 0;
+    m_multiPartPicker104 = 0;
     m_externalCpuPrimitivePicker = 0;
     m_externalGpuPrimitivePicker = 0;
 }
@@ -417,10 +602,10 @@ bool OpenGLSandboxWidget::initializeViewerContentGL(QOpenGLFunctions_3_3_Core* g
 {
     Q_UNUSED(gl);
 
-    // External GPU Mesh 使用真正的第二 OpenGL Context，并在独立 Worker Thread 中拥有和更新 VBO / EBO。
-    if (!initializeExternalGpuMesh())
+    // External GPU Geometry 使用真正的第二 OpenGL Context，并在独立 Worker Thread 中拥有和更新 VBO / EBO。
+    if (!initializeExternalGpuGeometry())
     {
-        qWarning() << "OpenGLSandboxWidget initializeViewerContentGL failed: External GPU Mesh initialization failed.";
+        qWarning() << "OpenGLSandboxWidget initializeViewerContentGL failed: External GPU Geometry initialization failed.";
         return false;
     }
 
@@ -430,13 +615,15 @@ bool OpenGLSandboxWidget::initializeViewerContentGL(QOpenGLFunctions_3_3_Core* g
 void OpenGLSandboxWidget::buildViewerContentItems()
 {
     m_cubeItem = 0;
-    m_externalMeshItem = 0;
-    m_externalGpuMeshItem = 0;
+    m_curveItem = 0;
+    m_multiPartItem = 0;
+    m_externalGeometryItem = 0;
+    m_externalGpuGeometryItem = 0;
 
     if (m_cube != 0 && m_cubeMaterial != 0)
     {
         m_cubeItem = scene().createItem("LitCubeItem");
-        m_cubeItem->setMesh(m_cube);
+        m_cubeItem->setGeometry(m_cube);
         m_cubeItem->setMaterial(m_cubeMaterial);
         m_cubeItem->setPrimitivePickSource(m_cubePrimitivePicker);
 
@@ -446,27 +633,46 @@ void OpenGLSandboxWidget::buildViewerContentItems()
         addPickCandidate(m_cubeItem);
     }
 
-    if (m_externalMesh != 0 && m_cubeMaterial != 0)
+    if (m_curve != 0 && m_curveMaterial != 0)
     {
-        m_externalMeshItem = scene().createItem("ExternalCpuMeshItem");
-        m_externalMeshItem->setMesh(m_externalMesh);
-        m_externalMeshItem->setMaterial(m_cubeMaterial);
-        m_externalMeshItem->setPrimitivePickSource(m_externalCpuPrimitivePicker);
-        m_externalMeshItem->transform().setPosition(QVector3D(3.5f, 0.0f, 0.0f));
-        addPickCandidate(m_externalMeshItem);
+        m_curveItem = scene().createItem("CurveItem");
+        m_curveItem->setGeometry(m_curve);
+        m_curveItem->setMaterial(m_curveMaterial);
+        m_curveItem->setPrimitivePickSource(m_curvePrimitivePicker);
+
+        AxisAlignedBoundingBox curveBounds;
+        const std::vector<QVector3D>& points = m_curve->points();
+
+        for (std::size_t pointIndex = 0; pointIndex < points.size(); ++pointIndex)
+            curveBounds.expandToInclude(points[pointIndex]);
+
+        m_curveItem->setLocalBounds(curveBounds);
+        addPickCandidate(m_curveItem);
     }
 
-    if (m_externalGpuMesh != 0 && m_cubeMaterial != 0)
+    buildMultiPartValidationItem();
+
+    if (m_externalGeometry != 0 && m_cubeMaterial != 0)
     {
-        m_externalGpuMeshItem = scene().createItem("ExternalGpuMeshItem");
-        m_externalGpuMeshItem->setMesh(m_externalGpuMesh);
-        m_externalGpuMeshItem->setMaterial(m_cubeMaterial);
-        m_externalGpuMeshItem->setPrimitivePickSource(m_externalGpuPrimitivePicker);
-        m_externalGpuMeshItem->transform().setPosition(QVector3D(-3.5f, 0.0f, 0.0f));
-        addPickCandidate(m_externalGpuMeshItem);
+        m_externalGeometryItem = scene().createItem("ExternalCpuGeometryItem");
+        m_externalGeometryItem->setGeometry(m_externalGeometry);
+        m_externalGeometryItem->setMaterial(m_cubeMaterial);
+        m_externalGeometryItem->setPrimitivePickSource(m_externalCpuPrimitivePicker);
+        m_externalGeometryItem->transform().setPosition(QVector3D(3.5f, 0.0f, 0.0f));
+        addPickCandidate(m_externalGeometryItem);
     }
 
-    // SandBox 的三个测试模型就是当前 User Scene 的三个 RenderItem，并显式注册为 Picking Candidate。
+    if (m_externalGpuGeometry != 0 && m_cubeMaterial != 0)
+    {
+        m_externalGpuGeometryItem = scene().createItem("ExternalGpuGeometryItem");
+        m_externalGpuGeometryItem->setGeometry(m_externalGpuGeometry);
+        m_externalGpuGeometryItem->setMaterial(m_cubeMaterial);
+        m_externalGpuGeometryItem->setPrimitivePickSource(m_externalGpuPrimitivePicker);
+        m_externalGpuGeometryItem->transform().setPosition(QVector3D(-3.5f, 0.0f, 0.0f));
+        addPickCandidate(m_externalGpuGeometryItem);
+    }
+
+    // SandBox 当前 User Scene 包含四个原有测试 Item 和一个显式 MultiPartItem，并全部注册为 Picking Candidate。
     // Viewer Grid / Axis / Camera Target / Highlight / ViewNavigation 不进入 Scene；Scene Bounds 只聚合用户 Item。
     updateExternalRenderItemBounds();
 }
@@ -475,8 +681,11 @@ bool OpenGLSandboxWidget::handleViewerKeyPress(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_L)
     {
-        if (m_sun != 0)
-            m_sun->setEnabled(!m_sun->isEnabled());
+        m_lightPreset = (m_lightPreset + 1) % 5;
+        applyLightPreset();
+
+        qDebug() << "OpenGLSandboxWidget Light Preset changed:"
+                 << lightPresetName();
 
         updateWindowTitle();
         update();
@@ -540,6 +749,94 @@ bool OpenGLSandboxWidget::handleViewerKeyPress(QKeyEvent* event)
         return true;
     }
 
+    if (event->key() == Qt::Key_W)
+    {
+        RenderItem* currentPickedItem = pickedItem();
+
+        if (currentPickedItem == 0)
+        {
+            qDebug() << "OpenGLSandboxWidget Display Mode ignored: no item is currently picked.";
+            return true;
+        }
+
+        if (!itemHasTriangleGeometry(currentPickedItem))
+        {
+            qDebug() << "OpenGLSandboxWidget Display Mode ignored: at least one Triangle RenderPart is required:"
+                     << currentPickedItem->name();
+            return true;
+        }
+
+        RenderItemDisplayMode nextMode = RenderItemDisplayShaded;
+
+        switch (currentPickedItem->displayMode())
+        {
+        case RenderItemDisplayShaded:
+            nextMode = RenderItemDisplayWireframe;
+            break;
+
+        case RenderItemDisplayWireframe:
+            nextMode = RenderItemDisplayShadedWithEdges;
+            break;
+
+        case RenderItemDisplayShadedWithEdges:
+            nextMode = RenderItemDisplayShaded;
+            break;
+        }
+
+        if (!currentPickedItem->setDisplayMode(nextMode))
+            return true;
+
+        qDebug() << "OpenGLSandboxWidget Display Mode changed:"
+                 << "Item=" << currentPickedItem->name()
+                 << "Mode=" << renderItemDisplayModeName(nextMode);
+
+        updateWindowTitle();
+        update();
+        return true;
+    }
+
+    if (event->key() == Qt::Key_J)
+    {
+        RenderItem* currentPickedItem = pickedItem();
+
+        if (currentPickedItem == 0)
+        {
+            qDebug() << "OpenGLSandboxWidget Hide Picked ignored: no item is currently picked.";
+            return true;
+        }
+
+        setItemVisible(currentPickedItem, false);
+        return true;
+    }
+
+    if (event->key() == Qt::Key_I)
+    {
+        RenderItem* currentPickedItem = pickedItem();
+
+        if (currentPickedItem == 0)
+        {
+            qDebug() << "OpenGLSandboxWidget Isolate Picked ignored: no item is currently picked.";
+            return true;
+        }
+
+        std::vector<RenderItem*> items;
+        items.push_back(currentPickedItem);
+        isolateItems(items);
+        return true;
+    }
+
+    if (event->key() == Qt::Key_U)
+    {
+        setAllItemsVisible(true);
+        return true;
+    }
+
+    if (event->key() == Qt::Key_N)
+    {
+        cycleMultiPartValidation();
+        return true;
+    }
+
     if (event->key() == Qt::Key_X)
     {
         // 故障注入测试使用独立临时 ResourceManager，不修改当前 Viewer Scene Resource。
@@ -574,14 +871,39 @@ void OpenGLSandboxWidget::buildSandboxContent()
     m_cube = createCube();
     resourceManager().add(m_cube);
 
+    /// MyOpenGL Owned Curve
+
+    m_curve = createDemoCurve();
+    resourceManager().add(m_curve);
+
+    /// Explicit Multi-Part Item Geometry
+    // 五个 Geometry 全部预注册，Part 结构变化时不引入新的 Resource 首次初始化变量。
+    m_multiPartGeometry101 = createMultiPartBoxGeometry("MultiPartGeometry101", MultiPartCenter101);
+    m_multiPartGeometry102 = createMultiPartBoxGeometry("MultiPartGeometry102", MultiPartCenter102);
+    m_multiPartGeometry103 = createMultiPartBoxGeometry("MultiPartGeometry103", MultiPartCenter103);
+    m_multiPartGeometry103Replacement = createMultiPartBoxGeometry("MultiPartGeometry103Replacement", MultiPartCenter103Replacement);
+    m_multiPartGeometry104 = createMultiPartBoxGeometry("MultiPartGeometry104", MultiPartCenter104);
+
+    resourceManager().add(m_multiPartGeometry101);
+    resourceManager().add(m_multiPartGeometry102);
+    resourceManager().add(m_multiPartGeometry103);
+    resourceManager().add(m_multiPartGeometry103Replacement);
+    resourceManager().add(m_multiPartGeometry104);
+
     /// External CPU / GPU Modeling Sources
 
-    buildExternalMesh();
+    buildExternalGeometry();
 
     /// Primitive Picking Sources
 
-    // Owned Mesh Picker 已经成为 MyOpenGL 通用 Adapter；External 两条 Modeling Path 仍由 SandBox Adapter 验证。
-    m_cubePrimitivePicker = new MeshResourcePrimitivePickSource(m_cube);
+    // BufferGeometry Picker 已经成为 MyOpenGL 通用 Adapter；External 两条 Modeling Path 仍由 SandBox Adapter 验证。
+    m_cubePrimitivePicker = new BufferGeometryPickSource(m_cube);
+    m_curvePrimitivePicker = new BufferGeometryPickSource(m_curve);
+    m_multiPartPicker101 = new BufferGeometryPickSource(m_multiPartGeometry101);
+    m_multiPartPicker102 = new BufferGeometryPickSource(m_multiPartGeometry102);
+    m_multiPartPicker103 = new BufferGeometryPickSource(m_multiPartGeometry103);
+    m_multiPartPicker103Replacement = new BufferGeometryPickSource(m_multiPartGeometry103Replacement);
+    m_multiPartPicker104 = new BufferGeometryPickSource(m_multiPartGeometry104);
     m_externalCpuPrimitivePicker = new SandboxModelingMeshPrimitivePicker(&m_modelingMesh);
     m_externalGpuPrimitivePicker = new SandboxModelingMeshPrimitivePicker(&m_modelingGpuSourceMesh);
 
@@ -599,19 +921,216 @@ void OpenGLSandboxWidget::buildSandboxContent()
     m_cubeMaterial->setDiffuseTexture(m_cubeTextureId);
     materialManager().add(m_cubeMaterial);
 
+    m_curveMaterial = new Material("CurveMaterial");
+    m_curveMaterial->setVertexColor();
+    materialManager().add(m_curveMaterial);
+
     /// Lighting
 
+    // 环境光只负责提供最低可见度；主要立体感由多光源 Diffuse 贡献产生。
     lightManager().setAmbientColor(QVector3D(1.0f, 1.0f, 1.0f));
-    lightManager().setAmbientIntensity(0.18f);
+    lightManager().setAmbientIntensity(0.08f);
 
     m_sun = new Light("Sun");
     m_sun->setDirectional(QVector3D(-1.0f, -1.0f, -1.0f));
-    m_sun->setColor(QVector3D(1.0f, 1.0f, 1.0f));
-    m_sun->setIntensity(0.9f);
+    m_sun->setColor(QVector3D(1.0f, 0.98f, 0.94f));
+    m_sun->setIntensity(0.80f);
     lightManager().add(m_sun);
+
+    // 与主光方向明显不同的弱补光，避免背光面完全压暗，同时保持明暗层次。
+    m_fillLight = new Light("Fill");
+    m_fillLight->setDirectional(QVector3D(1.0f, -0.35f, 0.8f));
+    m_fillLight->setColor(QVector3D(0.82f, 0.90f, 1.0f));
+    m_fillLight->setIntensity(0.28f);
+    lightManager().add(m_fillLight);
+
+    // Point Light 用于验证 Position + Range Diffuse Attenuation。
+    m_pointLight = new Light("Point");
+    m_pointLight->setPoint(QVector3D(0.0f, 4.5f, 3.5f), 8.5f);
+    m_pointLight->setColor(QVector3D(1.0f, 0.78f, 0.58f));
+    m_pointLight->setIntensity(0.50f);
+    lightManager().add(m_pointLight);
+
+    // Spot Light 使用现有半锥角定义，验证 Range + Cone Diffuse Attenuation。
+    m_spotLight = new Light("Spot");
+    m_spotLight->setSpot(QVector3D(0.0f, 6.0f, 6.0f), QVector3D(0.0f, -0.65f, -1.0f), 14.0f, 18.0f, 32.0f);
+    m_spotLight->setColor(QVector3D(0.62f, 0.78f, 1.0f));
+    m_spotLight->setIntensity(0.65f);
+    lightManager().add(m_spotLight);
+
+    applyLightPreset();
 }
 
-void OpenGLSandboxWidget::buildExternalMesh()
+/// Multi-Part RenderItem Test
+
+void OpenGLSandboxWidget::buildMultiPartValidationItem()
+{
+    if (m_cubeMaterial == 0 || m_multiPartGeometry101 == 0 || m_multiPartGeometry102 == 0 ||
+        m_multiPartGeometry103 == 0 || m_multiPartPicker101 == 0 || m_multiPartPicker102 == 0 ||
+        m_multiPartPicker103 == 0)
+    {
+        qWarning() << "OpenGLSandboxWidget buildMultiPartValidationItem failed: validation resources are incomplete.";
+        return;
+    }
+
+    m_multiPartItem = scene().createItem("MultiPartItem");
+    m_multiPartItem->setMaterial(m_cubeMaterial);
+
+    std::vector<RenderPartUpdate> initialUpdates;
+    initialUpdates.push_back(RenderPartUpdate::replacement(MultiPartId101, m_multiPartGeometry101));
+    initialUpdates.push_back(RenderPartUpdate::replacement(MultiPartId102, m_multiPartGeometry102));
+    initialUpdates.push_back(RenderPartUpdate::replacement(MultiPartId103, m_multiPartGeometry103));
+
+    if (!m_multiPartItem->applyPartUpdates(initialUpdates))
+    {
+        qWarning() << "OpenGLSandboxWidget buildMultiPartValidationItem failed: baseline RenderPartUpdate batch was rejected.";
+        return;
+    }
+
+    // Picking / Bounds 是测试所需的可选能力，基础 RenderPartUpdate 不要求调用方提供。
+    m_multiPartItem->part(MultiPartId101)->setPrimitivePickSource(m_multiPartPicker101);
+    m_multiPartItem->part(MultiPartId101)->setLocalBounds(multiPartBoxBounds(MultiPartCenter101));
+    m_multiPartItem->part(MultiPartId102)->setPrimitivePickSource(m_multiPartPicker102);
+    m_multiPartItem->part(MultiPartId102)->setLocalBounds(multiPartBoxBounds(MultiPartCenter102));
+    m_multiPartItem->part(MultiPartId103)->setPrimitivePickSource(m_multiPartPicker103);
+    m_multiPartItem->part(MultiPartId103)->setLocalBounds(multiPartBoxBounds(MultiPartCenter103));
+
+    // 整个 MultiPartItem 使用一个 Item Transform，三个 Geometry 都位于 Item Local Space。
+    m_multiPartItem->transform().setPosition(QVector3D(0.0f, -2.0f, 0.0f));
+    addPickCandidate(m_multiPartItem);
+    m_multiPartState = 0;
+
+    const AxisAlignedBoundingBox bounds = m_multiPartItem->worldBounds();
+
+    qDebug() << "OpenGLSandboxWidget Multi-Part Item built through minimal RenderPartUpdate:"
+             << "Item=" << m_multiPartItem->name()
+             << "Parts=" << m_multiPartItem->partCount()
+             << "Part101ResourceId=" << m_multiPartGeometry101->id()
+             << "Part102ResourceId=" << m_multiPartGeometry102->id()
+             << "Part103ResourceId=" << m_multiPartGeometry103->id()
+             << "BoundsMinimum=" << bounds.minimum()
+             << "BoundsMaximum=" << bounds.maximum();
+}
+
+bool OpenGLSandboxWidget::cycleMultiPartValidation()
+{
+    if (m_multiPartItem == 0)
+    {
+        qWarning() << "OpenGLSandboxWidget Multi-Part mutation failed: MultiPartItem does not exist.";
+        return false;
+    }
+
+    // Primitive / Bounds Highlight 可能引用即将移除或替换的 Part 几何，结构变化前主动清除交互缓存。
+    if (pickedItem() == m_multiPartItem)
+        clearPickedItem();
+
+    clearBoundsHighlight();
+    clearPrimitiveHighlight();
+
+    switch (m_multiPartState)
+    {
+    case 0:
+        if (!m_multiPartItem->applyPartUpdate(RenderPartUpdate::removal(MultiPartId102)))
+            return false;
+
+        m_multiPartState = 1;
+        break;
+
+    case 1:
+        if (!m_multiPartItem->applyPartUpdate(
+                RenderPartUpdate::replacement(MultiPartId103, m_multiPartGeometry103Replacement)))
+        {
+            return false;
+        }
+
+        m_multiPartItem->part(MultiPartId103)->setPrimitivePickSource(m_multiPartPicker103Replacement);
+        m_multiPartItem->part(MultiPartId103)->setLocalBounds(multiPartBoxBounds(MultiPartCenter103Replacement));
+        m_multiPartState = 2;
+        break;
+
+    case 2:
+        if (!m_multiPartItem->applyPartUpdate(
+                RenderPartUpdate::replacement(MultiPartId104, m_multiPartGeometry104)))
+        {
+            return false;
+        }
+
+        m_multiPartItem->part(MultiPartId104)->setPrimitivePickSource(m_multiPartPicker104);
+        m_multiPartItem->part(MultiPartId104)->setLocalBounds(multiPartBoxBounds(MultiPartCenter104));
+        m_multiPartState = 3;
+        break;
+
+    case 3:
+        if (!resetMultiPartValidation())
+            return false;
+        break;
+
+    default:
+        qWarning() << "OpenGLSandboxWidget Multi-Part mutation failed: unsupported state:" << m_multiPartState;
+        return false;
+    }
+
+    const RenderPart* unchangedPart101 = m_multiPartItem->part(MultiPartId101);
+    const AxisAlignedBoundingBox bounds = m_multiPartItem->worldBounds();
+
+    qDebug() << "OpenGLSandboxWidget Multi-Part state changed through minimal RenderPartUpdate:"
+             << "State=" << multiPartStateName()
+             << "Parts=" << m_multiPartItem->partCount()
+             << "Part101GeometryUnchanged=" << (unchangedPart101 != 0 && unchangedPart101->geometry() == m_multiPartGeometry101)
+             << "Part101ResourceId=" << m_multiPartGeometry101->id()
+             << "Part101VAO=" << m_multiPartGeometry101->vao()
+             << "BoundsMinimum=" << bounds.minimum()
+             << "BoundsMaximum=" << bounds.maximum();
+
+    viewerStateChanged();
+    update();
+    return true;
+}
+
+bool OpenGLSandboxWidget::resetMultiPartValidation()
+{
+    if (m_multiPartItem == 0)
+        return false;
+
+    std::vector<RenderPartUpdate> updates;
+    updates.push_back(RenderPartUpdate::replacement(MultiPartId101, m_multiPartGeometry101));
+    updates.push_back(RenderPartUpdate::replacement(MultiPartId102, m_multiPartGeometry102));
+    updates.push_back(RenderPartUpdate::replacement(MultiPartId103, m_multiPartGeometry103));
+    updates.push_back(RenderPartUpdate::removal(MultiPartId104));
+
+    if (!m_multiPartItem->applyPartUpdates(updates))
+        return false;
+
+    // Reset 后按需恢复测试用 Picking / Bounds；未进入基础 Update 接口。
+    m_multiPartItem->part(MultiPartId101)->setPrimitivePickSource(m_multiPartPicker101);
+    m_multiPartItem->part(MultiPartId101)->setLocalBounds(multiPartBoxBounds(MultiPartCenter101));
+    m_multiPartItem->part(MultiPartId102)->setPrimitivePickSource(m_multiPartPicker102);
+    m_multiPartItem->part(MultiPartId102)->setLocalBounds(multiPartBoxBounds(MultiPartCenter102));
+    m_multiPartItem->part(MultiPartId103)->setPrimitivePickSource(m_multiPartPicker103);
+    m_multiPartItem->part(MultiPartId103)->setLocalBounds(multiPartBoxBounds(MultiPartCenter103));
+
+    m_multiPartState = 0;
+    return true;
+}
+
+const char* OpenGLSandboxWidget::multiPartStateName() const
+{
+    switch (m_multiPartState)
+    {
+    case 0:
+        return "Base";
+    case 1:
+        return "Remove102";
+    case 2:
+        return "Replace103";
+    case 3:
+        return "Add104";
+    }
+
+    return "Unknown";
+}
+
+void OpenGLSandboxWidget::buildExternalGeometry()
 {
     // 两条 External Path 从完全相同的 ModelingMesh 数据开始。
     m_modelingMesh.buildQuad(1.0);
@@ -619,19 +1138,19 @@ void OpenGLSandboxWidget::buildExternalMesh()
 
     verifyModelingMeshConsistency("Initial Build");
 
-    m_externalMesh = new ExternalMeshResource("ModelingLibraryCpuMesh", ResourceUpdateDynamic);
+    m_externalGeometry = new ExternalGeometry("ModelingLibraryCpuGeometry", ResourceUpdateDynamic);
 
     // CPU Adapter 只提供 DataView / Revision / ChangeSet，CPU Mesh 所有权仍然属于 ModelingMesh。
-    if (!m_externalMesh->setDataSource(&m_modelingMeshAdapter))
+    if (!m_externalGeometry->setDataSource(&m_modelingMeshAdapter))
     {
-        qWarning() << "OpenGLSandboxWidget buildExternalMesh failed: unable to bind ModelingMeshAdapter.";
+        qWarning() << "OpenGLSandboxWidget buildExternalGeometry failed: unable to bind ModelingMeshAdapter.";
 
-        delete m_externalMesh;
-        m_externalMesh = 0;
+        delete m_externalGeometry;
+        m_externalGeometry = 0;
         return;
     }
 
-    resourceManager().add(m_externalMesh);
+    resourceManager().add(m_externalGeometry);
 }
 
 
@@ -646,34 +1165,34 @@ void OpenGLSandboxWidget::updateExternalRenderItemBounds()
         bounds.expandToInclude(QVector3D(static_cast<float>(point.x), static_cast<float>(point.y), static_cast<float>(point.z)));
     }
 
-    if (m_externalMeshItem != 0)
-        m_externalMeshItem->setLocalBounds(bounds);
+    if (m_externalGeometryItem != 0)
+        m_externalGeometryItem->setLocalBounds(bounds);
 
-    if (m_externalGpuMeshItem != 0)
-        m_externalGpuMeshItem->setLocalBounds(bounds);
+    if (m_externalGpuGeometryItem != 0)
+        m_externalGpuGeometryItem->setLocalBounds(bounds);
 
     // 当前 Viewer Pick 只有指向 External Item 时，黄色 Bounds Highlight 才需要随 Modeling 数据同步更新。
     // Highlight 基础能力仍只接收明确 World Bounds，不自行查询 Picking 状态。
     const RenderItem* currentPickedItem = pickedItem();
 
-    if (currentPickedItem == m_externalMeshItem || currentPickedItem == m_externalGpuMeshItem)
+    if (currentPickedItem == m_externalGeometryItem || currentPickedItem == m_externalGpuGeometryItem)
         showBoundsHighlight(currentPickedItem->worldBounds());
 }
 
 
-bool OpenGLSandboxWidget::initializeExternalGpuMesh()
+bool OpenGLSandboxWidget::initializeExternalGpuGeometry()
 {
     QOpenGLContext* renderContext = context();
 
     if (renderContext == 0)
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: Renderer OpenGL Context does not exist.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: Renderer OpenGL Context does not exist.";
         return false;
     }
 
     if (!QOpenGLContext::supportsThreadedOpenGL())
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: current Qt platform does not support threaded OpenGL.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: current Qt platform does not support threaded OpenGL.";
         return false;
     }
 
@@ -686,7 +1205,7 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
 
     if (!m_externalGpuSurface->isValid())
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: Offscreen Surface creation failed.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: Offscreen Surface creation failed.";
         shutdownExternalGpuWorker();
         return false;
     }
@@ -699,14 +1218,14 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
 
     if (!m_externalGpuContext->create() || !m_externalGpuContext->isValid())
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: Shared OpenGL Context creation failed.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: Shared OpenGL Context creation failed.";
         shutdownExternalGpuWorker();
         return false;
     }
 
     if (!QOpenGLContext::areSharing(renderContext, m_externalGpuContext))
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: Renderer and Worker Context are not in the same Share Group.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: Renderer and Worker Context are not in the same Share Group.";
         shutdownExternalGpuWorker();
         return false;
     }
@@ -722,7 +1241,7 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
 
     if (!m_modelingGpuMeshWorker.startAndWait())
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: External GPU Worker initialization failed.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: External GPU Worker initialization failed.";
         shutdownExternalGpuWorker();
         return false;
     }
@@ -732,27 +1251,27 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
              << "WorkerContext=" << m_externalGpuContext
              << "AreSharing=" << QOpenGLContext::areSharing(renderContext, m_externalGpuContext);
 
-    m_externalGpuMesh = new ExternalGpuMeshResource("ModelingLibraryGpuMesh");
+    m_externalGpuGeometry = new ExternalGpuGeometry("ModelingLibraryGpuGeometry");
 
-    // ExternalGpuMeshResource 只借用 Worker Context 创建的共享 VBO / EBO。
+    // ExternalGpuGeometry 只借用 Worker Context 创建的共享 VBO / EBO。
     // Worker 初始 GPU Storage 的 Write Fence 不再由 SandBox 手工等待；
     // ResourceManager 第一次 initializeGL() 时会通过 DataSource::prepareGpuViewGL() 完成该同步。
-    if (!m_externalGpuMesh->setDataSource(&m_modelingGpuMeshAdapter))
+    if (!m_externalGpuGeometry->setDataSource(&m_modelingGpuMeshAdapter))
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: unable to bind ModelingGpuMeshAdapter.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: unable to bind ModelingGpuMeshAdapter.";
 
-        delete m_externalGpuMesh;
-        m_externalGpuMesh = 0;
+        delete m_externalGpuGeometry;
+        m_externalGpuGeometry = 0;
         shutdownExternalGpuWorker();
         return false;
     }
 
-    if (resourceManager().add(m_externalGpuMesh) == InvalidResourceId)
+    if (resourceManager().add(m_externalGpuGeometry) == InvalidResourceId)
     {
-        qWarning() << "OpenGLSandboxWidget initializeExternalGpuMesh failed: ResourceManager rejected ExternalGpuMeshResource.";
+        qWarning() << "OpenGLSandboxWidget initializeExternalGpuGeometry failed: ResourceManager rejected ExternalGpuGeometry.";
 
-        delete m_externalGpuMesh;
-        m_externalGpuMesh = 0;
+        delete m_externalGpuGeometry;
+        m_externalGpuGeometry = 0;
         shutdownExternalGpuWorker();
         return false;
     }
@@ -761,25 +1280,25 @@ bool OpenGLSandboxWidget::initializeExternalGpuMesh()
 }
 
 
-MeshResource* OpenGLSandboxWidget::createCube()
+BufferGeometry* OpenGLSandboxWidget::createCube()
 {
-    MeshResource* cube = new MeshResource("LitCube", ResourceUpdateStatic, Triangles);
+    BufferGeometry* cube = new BufferGeometry("LitCube", ResourceUpdateStatic, Triangles);
 
-    std::vector<MeshVertexAttribute> attributes;
+    std::vector<GeometryVertexAttribute> attributes;
 
-    MeshVertexAttribute positionAttribute;
+    GeometryVertexAttribute positionAttribute;
     positionAttribute.location = 0;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
-    MeshVertexAttribute normalAttribute;
+    GeometryVertexAttribute normalAttribute;
     normalAttribute.location = 1;
     normalAttribute.componentCount = 3;
     normalAttribute.valueOffset = 3;
     attributes.push_back(normalAttribute);
 
-    MeshVertexAttribute uvAttribute;
+    GeometryVertexAttribute uvAttribute;
     uvAttribute.location = 2;
     uvAttribute.componentCount = 2;
     uvAttribute.valueOffset = 6;
@@ -847,9 +1366,26 @@ MeshResource* OpenGLSandboxWidget::createCube()
 }
 
 
-TextureResource* OpenGLSandboxWidget::createCheckerTexture()
+Curve* OpenGLSandboxWidget::createDemoCurve()
 {
-    TextureResource* texture = new TextureResource("CubeCheckerTexture", ResourceUpdateStatic);
+    Curve* curve = new Curve("DemoCurve");
+
+    std::vector<QVector3D> points;
+    points.push_back(QVector3D(-4.5f, 3.0f, 0.0f));
+    points.push_back(QVector3D(-2.25f, 3.8f, 0.0f));
+    points.push_back(QVector3D(0.0f, 3.0f, 0.0f));
+    points.push_back(QVector3D(2.25f, 3.8f, 0.0f));
+    points.push_back(QVector3D(4.5f, 3.0f, 0.0f));
+
+    curve->setPoints(points);
+    curve->setColor(QVector3D(0.2f, 0.9f, 1.0f));
+    return curve;
+}
+
+
+Texture* OpenGLSandboxWidget::createCheckerTexture()
+{
+    Texture* texture = new Texture("CubeCheckerTexture", ResourceUpdateStatic);
 
     const int textureSize = 128; // 128 × 128 足够观察 UV，同时保持测试纹理数据较小。
     const int cellSize = 16;     // 每个 Checker Cell 为 16 × 16 Pixel，共形成 8 × 8 格。
@@ -893,7 +1429,7 @@ bool OpenGLSandboxWidget::applyMatchedContentChange()
     // 两条 External Path 的源数据已经验证一致，因此两个 Scene Item 使用同一份 Local Bounds。
     updateExternalRenderItemBounds();
 
-    // Primitive Triangle 顶点可能已经变化；保留当前 Picked Item，但清除旧 Primitive Highlight，要求下一次 Click 重新取得明确 Triangle。
+    // External Triangle 顶点可能已经变化；保留当前 Picked Item，但清除旧 Primitive Highlight，要求下一次 Click 重新取得明确 Primitive。
     clearPrimitiveHighlight();
 
     return syncExternalGpuWorker("M Content Change");
@@ -925,7 +1461,7 @@ bool OpenGLSandboxWidget::rebuildMatchedExternalMeshes()
 
     updateExternalRenderItemBounds();
 
-    // Topology / Width 重建后旧 Triangle Vertex 不再作为当前 Primitive Highlight 的有效几何输入。
+    // Topology / Width 重建后旧 External Primitive Vertex 不再作为当前 Primitive Highlight 的有效几何输入。
     clearPrimitiveHighlight();
 
     return syncExternalGpuWorker("Structure Change");
@@ -1031,7 +1567,7 @@ bool OpenGLSandboxWidget::syncExternalGpuWorker(const char* operation)
     }
 
     // 这里只表示 Worker 已经发布 Write Fence，不表示 SandBox 自己需要等待 Fence。
-    // 真正的等待位置由 ExternalGpuMeshResource 根据 Structure Sync 或 Draw Sync 的语义决定。
+    // 真正的等待位置由 ExternalGpuGeometry 根据 Structure Sync 或 Draw Sync 的语义决定。
     qDebug() << "OpenGLSandboxWidget External GPU Worker Fence ready:" << operation;
 
     return true;
@@ -1080,11 +1616,77 @@ bool OpenGLSandboxWidget::replaceExternalGpuBuffers()
 }
 
 
+/// Lighting Test
+
+void OpenGLSandboxWidget::applyLightPreset()
+{
+    if (m_sun == 0 || m_fillLight == 0 || m_pointLight == 0 || m_spotLight == 0)
+        return;
+
+    m_sun->setEnabled(false);
+    m_fillLight->setEnabled(false);
+    m_pointLight->setEnabled(false);
+    m_spotLight->setEnabled(false);
+
+    switch (m_lightPreset)
+    {
+    case 0: // Main
+        m_sun->setEnabled(true);
+        break;
+
+    case 1: // Main + Fill
+        m_sun->setEnabled(true);
+        m_fillLight->setEnabled(true);
+        break;
+
+    case 2: // Main + Fill + Point
+        m_sun->setEnabled(true);
+        m_fillLight->setEnabled(true);
+        m_pointLight->setEnabled(true);
+        break;
+
+    case 3: // All
+        m_sun->setEnabled(true);
+        m_fillLight->setEnabled(true);
+        m_pointLight->setEnabled(true);
+        m_spotLight->setEnabled(true);
+        break;
+
+    case 4: // Off
+        break;
+
+    default:
+        qWarning() << "OpenGLSandboxWidget applyLightPreset failed: unsupported preset:" << m_lightPreset;
+        m_lightPreset = 1;
+        m_sun->setEnabled(true);
+        m_fillLight->setEnabled(true);
+        break;
+    }
+}
+
+const char* OpenGLSandboxWidget::lightPresetName() const
+{
+    switch (m_lightPreset)
+    {
+    case 0:
+        return "Main";
+    case 1:
+        return "Main+Fill";
+    case 2:
+        return "Main+Fill+Point";
+    case 3:
+        return "All";
+    case 4:
+        return "Off";
+    }
+
+    return "Unknown";
+}
+
 /// SandBox 状态
 
 void OpenGLSandboxWidget::updateWindowTitle()
 {
-    const bool lightEnabled = m_sun != 0 && m_sun->isEnabled();
     const bool textureEnabled = m_cubeMaterial != 0 && m_cubeMaterial->hasDiffuseTexture();
     const Camera* camera = cameraManager().activeCamera();
 
@@ -1103,17 +1705,22 @@ void OpenGLSandboxWidget::updateWindowTitle()
     }
 
     const RenderItem* currentPickedItem = pickedItem();
+    cameraText += QString(" PickMode:%1").arg(viewerPickModeName(pickMode()));
     cameraText += QString(" Pick:%1").arg(currentPickedItem != 0 ? currentPickedItem->name() : "None");
 
-    setWindowTitle(QString("OpenGL SandBox | Viewer Module + Test Harness | %1 | Click Pick | Left Drag Orbit | Esc Clear Pick | F Fit Picked | 1 Front | 2 Back | 3 Left | 4 Right | 5 Top | 6 Bottom | 7 Iso | H Fit All | M Matched Content | B Width:%2 | K Topology:%3 | P Replace GPU Buffers | X Resource Rollback | R Reset | O Origin | C Target:%4 | G Grid:%5 | A Axis:%6 | V Gizmo:%7 | L Light:%8 | T Texture:%9")
+    if (currentPickedItem != 0)
+        cameraText += QString(" Mode:%1").arg(renderItemDisplayModeName(currentPickedItem->displayMode()));
+
+    setWindowTitle(QString("OpenGL SandBox | Viewer Module + Test Harness | %1 | Left Drag Orbit | Middle Drag Pan | Right Click Pick | Q Pick Mode | Esc Clear Pick/Measure | F Fit Picked | 1 Front | 2 Back | 3 Left | 4 Right | 5 Top | 6 Bottom | 7 Iso | H Fit All | W Display Mode | J Hide Picked | I Isolate Picked | U Show All | N MultiPart:%2 | M Matched Content | B Width:%3 | K Topology:%4 | P Replace GPU Buffers | X Resource Rollback | R Reset | O Origin | C Target:%5 | G Grid:%6 | A Axis:%7 | V Gizmo:%8 | L Light:%9 | T Texture:%10")
         .arg(cameraText)
+        .arg(multiPartStateName())
         .arg(m_externalWide ? "Wide" : "Narrow")
         .arg(m_externalSplit ? "Split" : "Quad")
         .arg(cameraTargetVisible() ? "On" : "Off")
         .arg(gridVisible() ? "On" : "Off")
         .arg(axesVisible() ? "On" : "Off")
         .arg(viewNavigationVisible() ? "On" : "Off")
-        .arg(lightEnabled ? "On" : "Off")
+        .arg(lightPresetName())
         .arg(textureEnabled ? "On" : "Off"));
 }
 

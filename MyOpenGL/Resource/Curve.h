@@ -1,7 +1,7 @@
-#ifndef CURVERESOURCE_H
-#define CURVERESOURCE_H
+#ifndef CURVE_H
+#define CURVE_H
 
-#include "Resource/MeshResource.h"
+#include "Resource/BufferGeometry.h"
 
 #include <QVector3D>
 
@@ -9,10 +9,10 @@
 
 /// 动态折线资源。
 /// 使用控制点顺序生成 GL_LINE_STRIP，支持控制点位置的局部增量更新。
-class CurveResource : public MeshResource
+class Curve : public BufferGeometry
 {
 public:
-    explicit CurveResource(const QString& name = "Curve");
+    explicit Curve(const QString& name = "Curve");
 
     /// 曲线基本信息
     int pointCount() const;
@@ -36,4 +36,4 @@ private:
     QVector3D m_color;               // 当前整条曲线使用的 RGB 颜色，可使用大于 1 的 HDR 分量。
 };
 
-#endif // CURVERESOURCE_H
+#endif // CURVE_H

@@ -1,53 +1,43 @@
-#include "MeshResource.h"
+#include "BufferGeometry.h"
 
 #include <QDebug>
 
 #include <algorithm>
 
-MeshResource::MeshResource(const QString& name, ResourceUpdatePolicy updatePolicy, RenderType renderType)
-    : Resource(name, ResourceTypeMesh, updatePolicy)
+BufferGeometry::BufferGeometry(const QString& name, ResourceUpdatePolicy updatePolicy, RenderType renderType)
+    : Geometry(name, updatePolicy)
     , m_vao(0)
     , m_vbo(0)
     , m_ebo(0)
-    , m_primitiveType(renderType)
+    , m_renderType(renderType)
     , m_valuesPerVertex(0)
 {
 }
 
-MeshResource::MeshResource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy, RenderType renderType)
-    : Resource(name, type, updatePolicy)
-    , m_vao(0)
-    , m_vbo(0)
-    , m_ebo(0)
-    , m_primitiveType(renderType)
-    , m_valuesPerVertex(0)
+BufferGeometry::~BufferGeometry()
 {
 }
 
-MeshResource::~MeshResource()
-{
-}
+/// Geometry 基本信息
 
-/// Mesh 基本信息
-
-RenderType MeshResource::renderType() const
+RenderType BufferGeometry::renderType() const
 {
-    return m_primitiveType;
+    return m_renderType;
 }
 
 /// 顶点布局
 
-void MeshResource::setVertexLayout(int valuesPerVertex, const std::vector<MeshVertexAttribute>& attributes)
+void BufferGeometry::setVertexLayout(int valuesPerVertex, const std::vector<GeometryVertexAttribute>& attributes)
 {
     if (valuesPerVertex <= 0)
     {
-        qWarning() << "MeshResource setVertexLayout failed: valuesPerVertex must be greater than zero:" << name();
+        qWarning() << "BufferGeometry setVertexLayout failed: valuesPerVertex must be greater than zero:" << name();
         return;
     }
 
     if (attributes.empty())
     {
-        qWarning() << "MeshResource setVertexLayout failed: attributes cannot be empty:" << name();
+        qWarning() << "BufferGeometry setVertexLayout failed: attributes cannot be empty:" << name();
         return;
     }
 
@@ -57,43 +47,43 @@ void MeshResource::setVertexLayout(int valuesPerVertex, const std::vector<MeshVe
     markFullDirty();
 }
 
-int MeshResource::valuesPerVertex() const
+int BufferGeometry::valuesPerVertex() const
 {
     return m_valuesPerVertex;
 }
 
-const std::vector<MeshVertexAttribute>& MeshResource::attributes() const
+const std::vector<GeometryVertexAttribute>& BufferGeometry::attributes() const
 {
     return m_attributes;
 }
 
 /// CPU 数据
 
-void MeshResource::setVertexData(const std::vector<GLfloat>& vertices)
+void BufferGeometry::setVertexData(const std::vector<GLfloat>& vertices)
 {
     m_vertices = vertices;
     m_dirtyVertexRanges.clear();
     markFullDirty();
 }
 
-void MeshResource::setIndexData(const std::vector<GLuint>& indices)
+void BufferGeometry::setIndexData(const std::vector<GLuint>& indices)
 {
     m_indices = indices;
     m_dirtyIndexRanges.clear();
     markFullDirty();
 }
 
-const std::vector<GLfloat>& MeshResource::vertexData() const
+const std::vector<GLfloat>& BufferGeometry::vertexData() const
 {
     return m_vertices;
 }
 
-const std::vector<GLuint>& MeshResource::indexData() const
+const std::vector<GLuint>& BufferGeometry::indexData() const
 {
     return m_indices;
 }
 
-int MeshResource::vertexCount() const
+int BufferGeometry::vertexCount() const
 {
     if (m_valuesPerVertex <= 0)
         return 0;
@@ -101,24 +91,24 @@ int MeshResource::vertexCount() const
     return static_cast<int>(m_vertices.size() / static_cast<std::size_t>(m_valuesPerVertex));
 }
 
-int MeshResource::indexCount() const
+int BufferGeometry::indexCount() const
 {
     return static_cast<int>(m_indices.size());
 }
 
 /// 增量更新
 
-bool MeshResource::updateVertexData(int valueOffset, const GLfloat* data, int valueCount)
+bool BufferGeometry::updateVertexData(int valueOffset, const GLfloat* data, int valueCount)
 {
     if (data == 0 || valueCount <= 0)
     {
-        qWarning() << "MeshResource updateVertexData failed: update data is invalid:" << name();
+        qWarning() << "BufferGeometry updateVertexData failed: update data is invalid:" << name();
         return false;
     }
 
     if (valueOffset < 0 || static_cast<std::size_t>(valueOffset + valueCount) > m_vertices.size())
     {
-        qWarning() << "MeshResource updateVertexData failed: update range exceeds vertex data:" << name();
+        qWarning() << "BufferGeometry updateVertexData failed: update range exceeds vertex data:" << name();
         return false;
     }
 
@@ -133,17 +123,17 @@ bool MeshResource::updateVertexData(int valueOffset, const GLfloat* data, int va
     return true;
 }
 
-bool MeshResource::updateIndexData(int indexOffset, const GLuint* data, int indexCount)
+bool BufferGeometry::updateIndexData(int indexOffset, const GLuint* data, int indexCount)
 {
     if (data == 0 || indexCount <= 0)
     {
-        qWarning() << "MeshResource updateIndexData failed: update data is invalid:" << name();
+        qWarning() << "BufferGeometry updateIndexData failed: update data is invalid:" << name();
         return false;
     }
 
     if (indexOffset < 0 || static_cast<std::size_t>(indexOffset + indexCount) > m_indices.size())
     {
-        qWarning() << "MeshResource updateIndexData failed: update range exceeds index data:" << name();
+        qWarning() << "BufferGeometry updateIndexData failed: update range exceeds index data:" << name();
         return false;
     }
 
@@ -160,39 +150,29 @@ bool MeshResource::updateIndexData(int indexOffset, const GLuint* data, int inde
 
 /// GPU 对象
 
-GLuint MeshResource::vao() const
+GLuint BufferGeometry::vao() const
 {
     return m_vao;
 }
 
-GLuint MeshResource::vbo() const
+GLuint BufferGeometry::vbo() const
 {
     return m_vbo;
 }
 
-GLuint MeshResource::ebo() const
+GLuint BufferGeometry::ebo() const
 {
     return m_ebo;
 }
 
 /// Renderer 接口
 
-const QString& MeshResource::objectName() const
-{
-    return name();
-}
-
-bool MeshResource::objectInitialized() const
-{
-    return isInitialized();
-}
-
-GLenum MeshResource::indexType() const
+GLenum BufferGeometry::indexType() const
 {
     return GL_UNSIGNED_INT;
 }
 
-bool MeshResource::hasAttribute(GLuint location, GLint componentCount) const
+bool BufferGeometry::hasAttribute(GLuint location, GLint componentCount) const
 {
     for (std::size_t i = 0; i < m_attributes.size(); ++i)
     {
@@ -205,7 +185,7 @@ bool MeshResource::hasAttribute(GLuint location, GLint componentCount) const
 
 /// Resource GPU 实现
 
-bool MeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
+bool BufferGeometry::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateData())
         return false;
@@ -216,7 +196,7 @@ bool MeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 
     if (m_vao == 0 || m_vbo == 0 || m_ebo == 0)
     {
-        qWarning() << "MeshResource initialize failed: OpenGL object creation failed:" << name();
+        qWarning() << "BufferGeometry initialize failed: OpenGL object creation failed:" << name();
         releaseGPUObjects(gl);
         return false;
     }
@@ -241,7 +221,7 @@ bool MeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool MeshResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
+bool BufferGeometry::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateData())
         return false;
@@ -265,7 +245,7 @@ bool MeshResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool MeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
+bool BufferGeometry::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateData())
         return false;
@@ -289,7 +269,7 @@ bool MeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     {
         const char* indexBytes = reinterpret_cast<const char*>(&m_indices[0]);
 
-        // GL_ELEMENT_ARRAY_BUFFER 属于 VAO 状态；绑定当前 Mesh VAO 后即可访问它保存的 EBO。
+        // GL_ELEMENT_ARRAY_BUFFER 属于 VAO 状态；绑定当前 Geometry VAO 后即可访问它保存的 EBO。
         gl->glBindVertexArray(m_vao);
 
         for (std::size_t i = 0; i < m_dirtyIndexRanges.size(); ++i)
@@ -306,7 +286,7 @@ bool MeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-void MeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
+void BufferGeometry::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 {
     releaseGPUObjects(gl);
     m_dirtyVertexRanges.clear();
@@ -315,80 +295,80 @@ void MeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 
 /// 内部辅助
 
-bool MeshResource::validateData() const
+bool BufferGeometry::validateData() const
 {
     if (m_valuesPerVertex <= 0)
     {
-        qWarning() << "MeshResource validation failed: vertex layout is not configured:" << name();
+        qWarning() << "BufferGeometry validation failed: vertex layout is not configured:" << name();
         return false;
     }
 
     if (m_attributes.empty())
     {
-        qWarning() << "MeshResource validation failed: vertex attributes are empty:" << name();
+        qWarning() << "BufferGeometry validation failed: vertex attributes are empty:" << name();
         return false;
     }
 
     if (m_vertices.empty())
     {
-        qWarning() << "MeshResource validation failed: vertex data is empty:" << name();
+        qWarning() << "BufferGeometry validation failed: vertex data is empty:" << name();
         return false;
     }
 
     if (m_indices.empty())
     {
-        qWarning() << "MeshResource validation failed: index data is empty:" << name();
+        qWarning() << "BufferGeometry validation failed: index data is empty:" << name();
         return false;
     }
 
     if (m_vertices.size() % static_cast<std::size_t>(m_valuesPerVertex) != 0)
     {
-        qWarning() << "MeshResource validation failed: vertex data does not match vertex layout:" << name();
+        qWarning() << "BufferGeometry validation failed: vertex data does not match vertex layout:" << name();
         return false;
     }
 
-    const int meshVertexCount = vertexCount();
+    const int geometryVertexCount = vertexCount();
 
     for (std::size_t i = 0; i < m_indices.size(); ++i)
     {
-        if (m_indices[i] >= static_cast<GLuint>(meshVertexCount))
+        if (m_indices[i] >= static_cast<GLuint>(geometryVertexCount))
         {
-            qWarning() << "MeshResource validation failed: index exceeds vertex count:" << m_indices[i] << name();
+            qWarning() << "BufferGeometry validation failed: index exceeds vertex count:" << m_indices[i] << name();
             return false;
         }
     }
 
-    if (m_primitiveType == Triangles && m_indices.size() % 3 != 0)
+    if (m_renderType == Triangles && m_indices.size() % 3 != 0)
     {
-        qWarning() << "MeshResource validation failed: triangle index count must be divisible by 3:" << name();
+        qWarning() << "BufferGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (m_primitiveType == Lines && m_indices.size() % 2 != 0)
+    if (m_renderType == Lines && m_indices.size() % 2 != 0)
     {
-        qWarning() << "MeshResource validation failed: line index count must be divisible by 2:" << name();
+        qWarning() << "BufferGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (m_primitiveType == LineStrip && m_indices.size() < 2)
+    if (m_renderType == LineStrip && m_indices.size() < 2)
     {
-        qWarning() << "MeshResource validation failed: line strip requires at least 2 indices:" << name();
+        qWarning() << "BufferGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;
     }
 
     for (std::size_t i = 0; i < m_attributes.size(); ++i)
     {
-        const MeshVertexAttribute& attribute = m_attributes[i];
+        const GeometryVertexAttribute& attribute = m_attributes[i];
 
         if (attribute.componentCount <= 0 || attribute.componentCount > 4)
         {
-            qWarning() << "MeshResource validation failed: attribute componentCount must be between 1 and 4:" << name();
+            qWarning() << "BufferGeometry validation failed: attribute componentCount must be between 1 and 4:" << name();
             return false;
         }
 
         if (attribute.valueOffset < 0 || attribute.valueOffset + attribute.componentCount > m_valuesPerVertex)
         {
-            qWarning() << "MeshResource validation failed: attribute exceeds vertex layout:" << name();
+            qWarning() << "BufferGeometry validation failed: attribute exceeds vertex layout:" << name();
             return false;
         }
 
@@ -396,7 +376,7 @@ bool MeshResource::validateData() const
         {
             if (attribute.location == m_attributes[j].location)
             {
-                qWarning() << "MeshResource validation failed: duplicate attribute location:" << attribute.location << name();
+                qWarning() << "BufferGeometry validation failed: duplicate attribute location:" << attribute.location << name();
                 return false;
             }
         }
@@ -405,7 +385,7 @@ bool MeshResource::validateData() const
     return true;
 }
 
-void MeshResource::configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl)
+void BufferGeometry::configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl)
 {
     for (std::size_t i = 0; i < m_enabledAttributeLocations.size(); ++i)
         gl->glDisableVertexAttribArray(m_enabledAttributeLocations[i]);
@@ -416,7 +396,7 @@ void MeshResource::configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl)
 
     for (std::size_t i = 0; i < m_attributes.size(); ++i)
     {
-        const MeshVertexAttribute& attribute = m_attributes[i];
+        const GeometryVertexAttribute& attribute = m_attributes[i];
         const std::size_t byteOffset = static_cast<std::size_t>(attribute.valueOffset) * sizeof(GLfloat);
 
         gl->glVertexAttribPointer(attribute.location, attribute.componentCount, GL_FLOAT, GL_FALSE, stride, reinterpret_cast<const void*>(byteOffset));
@@ -425,7 +405,7 @@ void MeshResource::configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl)
     }
 }
 
-void MeshResource::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
+void BufferGeometry::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_ebo != 0)
     {
@@ -448,7 +428,7 @@ void MeshResource::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
     m_enabledAttributeLocations.clear();
 }
 
-GLenum MeshResource::bufferUsage() const
+GLenum BufferGeometry::bufferUsage() const
 {
     return updatePolicy() == ResourceUpdateDynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
 }

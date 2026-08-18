@@ -1,7 +1,7 @@
 #ifndef MATERIAL_H
 #define MATERIAL_H
 
-#include "Core/Resource.h"
+#include "MyOpenGL/Core/Resource.h"
 
 #include <QString>
 #include <QVector3D>
@@ -19,15 +19,16 @@ const MaterialId InvalidMaterialId = 0;
 /// 描述 Renderer 应使用哪一种基础渲染管线处理当前材质。
 enum MaterialType
 {
-    MaterialTypeVertexColor, // 无光照顶点颜色材质，颜色直接来自 Mesh Vertex。
-    MaterialTypeLit          // 受光照材质，使用 BaseColor、Specular、Texture 等表面参数。
+    MaterialTypeVertexColor,    // 无光照顶点颜色材质，颜色直接来自 Geometry Vertex。
+    MaterialTypeLit,            // 受光照材质，使用 BaseColor、Specular、Texture 等表面参数。
+    MaterialTypeLitVertexColor  // 受光照顶点颜色材质，使用 Position + Normal + Color，适合建模/仿真生成的面颜色。
 };
 
 /// 获取材质类型的调试名称。
 const char* materialTypeName(MaterialType type);
 
 /// 表面材质状态。
-/// 不拥有 GPU 对象，通过 ResourceId 引用 TextureResource，并保存光照所需的表面参数。
+/// 不拥有 GPU 对象，通过 ResourceId 引用 Texture，并保存光照所需的表面参数。
 class Material
 {
 public:
@@ -39,8 +40,9 @@ public:
     MaterialType type() const;
 
     /// 材质类型
-    void setVertexColor(); // 切换到无光照 Vertex Color 管线。
-    void setLit();         // 切换到受光照材质管线。
+    void setVertexColor();    // 切换到无光照 Vertex Color 管线。
+    void setLit();            // 切换到 Position + Normal + UV 的受光照材质管线。
+    void setLitVertexColor(); // 切换到 Position + Normal + Color 的受光照材质管线。
 
     /// 基础颜色
     const QVector4D& baseColor() const;

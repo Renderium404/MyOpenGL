@@ -1,9 +1,9 @@
-#include "CoordinateSystemResource.h"
+#include "CoordinateSystemGeometry.h"
 
 #include <QDebug>
 
-CoordinateSystemResource::CoordinateSystemResource(const QString& name)
-    : MeshResource(name, ResourceTypeCoordinateSystem, ResourceUpdateStatic, Lines)
+CoordinateSystemGeometry::CoordinateSystemGeometry(const QString& name)
+    : BufferGeometry(name, ResourceUpdateStatic, Lines)
     , m_axisLength(1.0f) // 默认单位坐标系，每个轴从原点延伸 1 个局部坐标单位。
 {
     rebuildGeometry();
@@ -11,16 +11,16 @@ CoordinateSystemResource::CoordinateSystemResource(const QString& name)
 
 /// 几何参数
 
-float CoordinateSystemResource::axisLength() const
+float CoordinateSystemGeometry::axisLength() const
 {
     return m_axisLength;
 }
 
-bool CoordinateSystemResource::setAxisLength(float length)
+bool CoordinateSystemGeometry::setAxisLength(float length)
 {
     if (length <= 0.0f)
     {
-        qWarning() << "CoordinateSystemResource setAxisLength failed: length must be greater than zero:" << name();
+        qWarning() << "CoordinateSystemGeometry setAxisLength failed: length must be greater than zero:" << name();
         return false;
     }
 
@@ -34,17 +34,17 @@ bool CoordinateSystemResource::setAxisLength(float length)
 
 /// 几何生成
 
-void CoordinateSystemResource::rebuildGeometry()
+void CoordinateSystemGeometry::rebuildGeometry()
 {
-    std::vector<MeshVertexAttribute> attributes;
+    std::vector<GeometryVertexAttribute> attributes;
 
-    MeshVertexAttribute positionAttribute;
+    GeometryVertexAttribute positionAttribute;
     positionAttribute.location = 0;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
-    MeshVertexAttribute colorAttribute;
+    GeometryVertexAttribute colorAttribute;
     colorAttribute.location = 1;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;

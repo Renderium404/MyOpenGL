@@ -2,6 +2,7 @@
 #define CAMERA_H
 
 #include <QMatrix4x4>
+#include <QQuaternion>
 #include <QString>
 #include <QVector3D>
 
@@ -25,7 +26,7 @@ enum CameraProjectionType
 const char* cameraProjectionTypeName(CameraProjectionType type);
 
 /// 单个相机状态。
-/// 保存观察位置、观察目标、Up 方向以及投影参数，并负责生成 View / Projection Matrix。
+/// 使用四元数保存完整观察姿态，同时保存 Position / Target 和投影参数，并负责生成 View / Projection Matrix。
 class Camera
 {
 public:
@@ -39,10 +40,11 @@ public:
     /// 观察状态
     const QVector3D& position() const;
     const QVector3D& target() const;
-    const QVector3D& up() const;
-    QVector3D forward() const;          // 获取从 Camera Position 指向 Target 的单位方向。
-    QVector3D right() const;            // 获取当前视图的单位右方向。
-    QVector3D viewUp() const;           // 获取与 Forward、Right 正交的实际视图 Up 方向。
+    const QVector3D& up() const;       // 获取当前实际视图 Up 方向，保持旧接口兼容。
+    const QQuaternion& orientation() const; // 获取 Camera Local -> World 的完整四元数姿态。
+    QVector3D forward() const;          // 获取当前四元数姿态对应的单位 Forward；Camera Local Forward = -Z。
+    QVector3D right() const;            // 获取当前四元数姿态对应的单位 Right；Camera Local Right = +X。
+    QVector3D viewUp() const;           // 获取当前四元数姿态对应的单位 Up；Camera Local Up = +Y。
     float distanceToTarget() const;
     bool setView(const QVector3D& position, const QVector3D& target, const QVector3D& up); // 同时设置观察状态并检查方向是否合法。
 
@@ -76,7 +78,8 @@ private:
     CameraProjectionType m_projectionType;   // 当前相机投影类型。
     QVector3D m_position;                    // 当前相机在世界坐标中的位置。
     QVector3D m_target;                      // 当前相机观察目标点。
-    QVector3D m_up;                          // 当前相机参考 Up 方向。
+    QVector3D m_up;                          // 当前四元数姿态对应的实际 View Up，供旧引用接口返回。
+    QQuaternion m_orientation;                // Camera Local -> World 完整旋转姿态，避免欧拉角和极点锁定。
     float m_fieldOfView;                     // 透视投影垂直视场角，单位为度。
     float m_orthographicHeight;              // 正交投影视口在世界坐标中的可视高度。
     float m_nearPlane;                       // 当前投影 Near Plane 距离。

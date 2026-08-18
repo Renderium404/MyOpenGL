@@ -1,9 +1,9 @@
-#include "ExternalGpuMeshResource.h"
+#include "ExternalGpuGeometry.h"
 
 #include <QDebug>
 
-ExternalGpuMeshResource::ExternalGpuMeshResource(const QString& name)
-    : Resource(name, ResourceTypeMesh, ResourceUpdateStatic)
+ExternalGpuGeometry::ExternalGpuGeometry(const QString& name)
+    : Geometry(name, ResourceUpdateStatic)
     , m_source(0)
     , m_observedStructureRevision(0)
     , m_synchronizedStructureRevision(0)
@@ -15,17 +15,17 @@ ExternalGpuMeshResource::ExternalGpuMeshResource(const QString& name)
     m_view.indices.indexType = GL_UNSIGNED_INT;
 }
 
-ExternalGpuMeshResource::~ExternalGpuMeshResource()
+ExternalGpuGeometry::~ExternalGpuGeometry()
 {
 }
 
 /// 自动数据源模式
 
-bool ExternalGpuMeshResource::setDataSource(const ExternalGpuMeshDataSource* source)
+bool ExternalGpuGeometry::setDataSource(const ExternalGpuGeometryDataSource* source)
 {
     if (source == 0)
     {
-        qWarning() << "ExternalGpuMeshResource setDataSource failed: source is null:" << name();
+        qWarning() << "ExternalGpuGeometry setDataSource failed: source is null:" << name();
         return false;
     }
 
@@ -39,14 +39,14 @@ bool ExternalGpuMeshResource::setDataSource(const ExternalGpuMeshDataSource* sou
     return true;
 }
 
-const ExternalGpuMeshDataSource* ExternalGpuMeshResource::dataSource() const
+const ExternalGpuGeometryDataSource* ExternalGpuGeometry::dataSource() const
 {
     return m_source;
 }
 
 /// 手动 GPU View 模式
 
-bool ExternalGpuMeshResource::setGpuView(const ExternalGpuMeshView& view)
+bool ExternalGpuGeometry::setGpuView(const ExternalGpuGeometryView& view)
 {
     if (!validateGpuView(view))
         return false;
@@ -61,56 +61,46 @@ bool ExternalGpuMeshResource::setGpuView(const ExternalGpuMeshView& view)
     return true;
 }
 
-const ExternalGpuMeshView& ExternalGpuMeshResource::gpuView() const
+const ExternalGpuGeometryView& ExternalGpuGeometry::gpuView() const
 {
     return m_view;
 }
 
 /// Revision 调试状态
 
-ExternalGpuMeshRevision ExternalGpuMeshResource::structureRevision() const
+ExternalGpuGeometryRevision ExternalGpuGeometry::structureRevision() const
 {
     return m_observedStructureRevision;
 }
 
-ExternalGpuMeshRevision ExternalGpuMeshResource::synchronizedStructureRevision() const
+ExternalGpuGeometryRevision ExternalGpuGeometry::synchronizedStructureRevision() const
 {
     return m_synchronizedStructureRevision;
 }
 
 /// Renderer 接口
 
-const QString& ExternalGpuMeshResource::objectName() const
-{
-    return name();
-}
-
-bool ExternalGpuMeshResource::objectInitialized() const
-{
-    return isInitialized();
-}
-
-GLuint ExternalGpuMeshResource::vao() const
+GLuint ExternalGpuGeometry::vao() const
 {
     return m_vao;
 }
 
-int ExternalGpuMeshResource::indexCount() const
+int ExternalGpuGeometry::indexCount() const
 {
     return m_view.indices.indexCount;
 }
 
-GLenum ExternalGpuMeshResource::indexType() const
+GLenum ExternalGpuGeometry::indexType() const
 {
     return m_view.indices.indexType;
 }
 
-RenderType ExternalGpuMeshResource::renderType() const
+RenderType ExternalGpuGeometry::renderType() const
 {
     return m_view.renderType;
 }
 
-bool ExternalGpuMeshResource::hasAttribute(GLuint location, GLint componentCount) const
+bool ExternalGpuGeometry::hasAttribute(GLuint location, GLint componentCount) const
 {
     for (std::size_t i = 0; i < m_view.attributes.size(); ++i)
     {
@@ -123,11 +113,11 @@ bool ExternalGpuMeshResource::hasAttribute(GLuint location, GLint componentCount
 
 /// 绘制同步
 
-bool ExternalGpuMeshResource::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
+bool ExternalGpuGeometry::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
 {
     if (gl == 0)
     {
-        qWarning() << "ExternalGpuMeshResource prepareDrawGL failed: OpenGL functions are null:" << name();
+        qWarning() << "ExternalGpuGeometry prepareDrawGL failed: OpenGL functions are null:" << name();
         return false;
     }
 
@@ -138,18 +128,18 @@ bool ExternalGpuMeshResource::prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const
     // 即使 Structure Revision 没有变化，外部库仍可能修改相同 VBO / EBO 的 Data Store 或内容。
     if (!m_source->beginReadGL(gl))
     {
-        qWarning() << "ExternalGpuMeshResource prepareDrawGL failed: DataSource cannot acquire GPU read access:" << name();
+        qWarning() << "ExternalGpuGeometry prepareDrawGL failed: DataSource cannot acquire GPU read access:" << name();
         return false;
     }
 
     return true;
 }
 
-void ExternalGpuMeshResource::finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const
+void ExternalGpuGeometry::finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const
 {
     if (gl == 0)
     {
-        qWarning() << "ExternalGpuMeshResource finishDrawGL failed: OpenGL functions are null:" << name();
+        qWarning() << "ExternalGpuGeometry finishDrawGL failed: OpenGL functions are null:" << name();
         return;
     }
 
@@ -162,19 +152,19 @@ void ExternalGpuMeshResource::finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const
 
 /// Resource GPU 实现
 
-bool ExternalGpuMeshResource::onPrepareSync()
+bool ExternalGpuGeometry::onPrepareSync()
 {
     if (m_source == 0)
         return true;
 
-    const ExternalGpuMeshRevision currentStructureRevision = m_source->structureRevision();
+    const ExternalGpuGeometryRevision currentStructureRevision = m_source->structureRevision();
 
     // GPU Buffer 内容变化不需要通知 MyOpenGL；只有 Structure Revision 变化才重新获取 GPU View。
     if (currentStructureRevision == m_observedStructureRevision)
         return true;
 
-    //这里只记录“已经观察到”的 Revision。
-    //真正提交给 Renderer 的 Revision 必须等 GPU View 验证和 VAO 配置全部成功后才能前移。
+    // 这里只记录“已经观察到”的 Revision。
+    // 真正提交给 Renderer 的 Revision 必须等 GPU View 验证和 VAO 配置全部成功后才能前移。
     m_observedStructureRevision = currentStructureRevision;
 
     // Structure 变化只要求重新配置 VAO，不会复制或上传任何 Geometry 数据。
@@ -182,17 +172,17 @@ bool ExternalGpuMeshResource::onPrepareSync()
     return true;
 }
 
-bool ExternalGpuMeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGpuGeometry::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 {
     return synchronizeGpuViewGL(gl);
 }
 
-bool ExternalGpuMeshResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGpuGeometry::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
 {
     return synchronizeGpuViewGL(gl);
 }
 
-bool ExternalGpuMeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGpuGeometry::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
 {
     Q_UNUSED(gl);
 
@@ -200,7 +190,7 @@ bool ExternalGpuMeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-void ExternalGpuMeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
+void ExternalGpuGeometry::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 {
     // 只释放 MyOpenGL 自己创建的 VAO，绝不能删除外部库拥有的 VBO / EBO。
     releaseVAO(gl);
@@ -212,11 +202,11 @@ void ExternalGpuMeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 
 /// GPU View 同步
 
-bool ExternalGpuMeshResource::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGpuGeometry::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (gl == 0)
     {
-        qWarning() << "ExternalGpuMeshResource synchronizeGpuViewGL failed: OpenGL functions are null:" << name();
+        qWarning() << "ExternalGpuGeometry synchronizeGpuViewGL failed: OpenGL functions are null:" << name();
         return false;
     }
 
@@ -241,21 +231,21 @@ bool ExternalGpuMeshResource::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl
         // 再读取 GPU View、glIsBuffer() 并重新 Attach 到当前 VAO。
         if (!m_source->prepareGpuViewGL(gl))
         {
-            qWarning() << "ExternalGpuMeshResource synchronizeGpuViewGL failed: DataSource cannot prepare GPU View:" << name();
+            qWarning() << "ExternalGpuGeometry synchronizeGpuViewGL failed: DataSource cannot prepare GPU View:" << name();
             return false;
         }
 
-        const ExternalGpuMeshRevision revisionBeforeView = m_source->structureRevision();
+        const ExternalGpuGeometryRevision revisionBeforeView = m_source->structureRevision();
 
-        ExternalGpuMeshView newView;
+        ExternalGpuGeometryView newView;
 
         if (!m_source->gpuView(newView))
         {
-            qWarning() << "ExternalGpuMeshResource synchronizeGpuViewGL failed: DataSource cannot provide GPU View:" << name();
+            qWarning() << "ExternalGpuGeometry synchronizeGpuViewGL failed: DataSource cannot provide GPU View:" << name();
             return false;
         }
 
-        const ExternalGpuMeshRevision revisionAfterView = m_source->structureRevision();
+        const ExternalGpuGeometryRevision revisionAfterView = m_source->structureRevision();
 
         // 如果获取 View 的过程中 Producer 又发布了下一版 Structure，
         // 当前 View 无法再可靠地和某一个 Revision 对应，重新等待并取得下一份稳定快照。
@@ -271,7 +261,7 @@ bool ExternalGpuMeshResource::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl
         if (!validateGpuObjects(gl, newView))
             return false;
 
-        const ExternalGpuMeshRevision oldSynchronizedRevision = m_synchronizedStructureRevision;
+        const ExternalGpuGeometryRevision oldSynchronizedRevision = m_synchronizedStructureRevision;
 
         // configureVAO() 成功之前不修改 m_view 和 Synchronized Revision。
         // 因此任何失败都不会把“观察到的新 Revision”伪装成“已经提交的 Revision”。
@@ -284,7 +274,7 @@ bool ExternalGpuMeshResource::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl
 
         if (oldSynchronizedRevision != m_synchronizedStructureRevision)
         {
-            qDebug() << "ExternalGpuMeshResource Structure Revision synchronized:"
+            qDebug() << "ExternalGpuGeometry Structure Revision synchronized:"
                      << name()
                      << "OldRevision=" << static_cast<qulonglong>(oldSynchronizedRevision)
                      << "NewRevision=" << static_cast<qulonglong>(m_synchronizedStructureRevision)
@@ -298,23 +288,23 @@ bool ExternalGpuMeshResource::synchronizeGpuViewGL(QOpenGLFunctions_3_3_Core* gl
         return true;
     }
 
-    qWarning() << "ExternalGpuMeshResource synchronizeGpuViewGL failed: GPU Structure changed continuously while acquiring View:" << name();
+    qWarning() << "ExternalGpuGeometry synchronizeGpuViewGL failed: GPU Structure changed continuously while acquiring View:" << name();
     return false;
 }
 
 /// 数据验证
 
-bool ExternalGpuMeshResource::validateGpuView(const ExternalGpuMeshView& view) const
+bool ExternalGpuGeometry::validateGpuView(const ExternalGpuGeometryView& view) const
 {
     if (view.vertexBuffers.empty())
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: vertex buffers are empty:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: vertex buffers are empty:" << name();
         return false;
     }
 
     if (view.attributes.empty())
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: attributes are empty:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: attributes are empty:" << name();
         return false;
     }
 
@@ -322,13 +312,13 @@ bool ExternalGpuMeshResource::validateGpuView(const ExternalGpuMeshView& view) c
     {
         if (view.vertexBuffers[i].bufferId == 0)
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: vertex buffer ID is zero:" << i << name();
+            qWarning() << "ExternalGpuGeometry validation failed: vertex buffer ID is zero:" << i << name();
             return false;
         }
 
         if (view.vertexBuffers[i].stride <= 0)
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: vertex buffer stride must be greater than zero:" << i << name();
+            qWarning() << "ExternalGpuGeometry validation failed: vertex buffer stride must be greater than zero:" << i << name();
             return false;
         }
     }
@@ -339,19 +329,19 @@ bool ExternalGpuMeshResource::validateGpuView(const ExternalGpuMeshView& view) c
 
         if (attribute.bufferIndex < 0 || attribute.bufferIndex >= static_cast<int>(view.vertexBuffers.size()))
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: attribute buffer index is invalid:" << name();
+            qWarning() << "ExternalGpuGeometry validation failed: attribute buffer index is invalid:" << name();
             return false;
         }
 
         if (attribute.componentCount <= 0 || attribute.componentCount > 4)
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: attribute component count must be between 1 and 4:" << name();
+            qWarning() << "ExternalGpuGeometry validation failed: attribute component count must be between 1 and 4:" << name();
             return false;
         }
 
         if (!isSupportedComponentType(attribute.componentType))
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: unsupported attribute component type:" << attribute.componentType << name();
+            qWarning() << "ExternalGpuGeometry validation failed: unsupported attribute component type:" << attribute.componentType << name();
             return false;
         }
 
@@ -359,7 +349,7 @@ bool ExternalGpuMeshResource::validateGpuView(const ExternalGpuMeshView& view) c
         {
             if (attribute.location == view.attributes[j].location)
             {
-                qWarning() << "ExternalGpuMeshResource validation failed: duplicate attribute location:" << attribute.location << name();
+                qWarning() << "ExternalGpuGeometry validation failed: duplicate attribute location:" << attribute.location << name();
                 return false;
             }
         }
@@ -367,44 +357,44 @@ bool ExternalGpuMeshResource::validateGpuView(const ExternalGpuMeshView& view) c
 
     if (view.indices.bufferId == 0)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: index buffer ID is zero:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: index buffer ID is zero:" << name();
         return false;
     }
 
     if (view.indices.indexCount <= 0)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: index count must be greater than zero:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: index count must be greater than zero:" << name();
         return false;
     }
 
     if (!isSupportedIndexType(view.indices.indexType))
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: unsupported index type:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: unsupported index type:" << name();
         return false;
     }
 
     if (view.renderType == Triangles && view.indices.indexCount % 3 != 0)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: triangle index count must be divisible by 3:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
     if (view.renderType == Lines && view.indices.indexCount % 2 != 0)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: line index count must be divisible by 2:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
     if (view.renderType == LineStrip && view.indices.indexCount < 2)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: line strip requires at least 2 indices:" << name();
+        qWarning() << "ExternalGpuGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;
     }
 
     return true;
 }
 
-bool ExternalGpuMeshResource::validateGpuObjects(QOpenGLFunctions_3_3_Core* gl, const ExternalGpuMeshView& view) const
+bool ExternalGpuGeometry::validateGpuObjects(QOpenGLFunctions_3_3_Core* gl, const ExternalGpuGeometryView& view) const
 {
     for (std::size_t i = 0; i < view.vertexBuffers.size(); ++i)
     {
@@ -412,7 +402,7 @@ bool ExternalGpuMeshResource::validateGpuObjects(QOpenGLFunctions_3_3_Core* gl, 
 
         if (gl->glIsBuffer(bufferId) != GL_TRUE)
         {
-            qWarning() << "ExternalGpuMeshResource validation failed: external vertex buffer is not valid in current OpenGL Context:"
+            qWarning() << "ExternalGpuGeometry validation failed: external vertex buffer is not valid in current OpenGL Context:"
                        << bufferId
                        << name();
             return false;
@@ -421,7 +411,7 @@ bool ExternalGpuMeshResource::validateGpuObjects(QOpenGLFunctions_3_3_Core* gl, 
 
     if (gl->glIsBuffer(view.indices.bufferId) != GL_TRUE)
     {
-        qWarning() << "ExternalGpuMeshResource validation failed: external index buffer is not valid in current OpenGL Context:"
+        qWarning() << "ExternalGpuGeometry validation failed: external index buffer is not valid in current OpenGL Context:"
                    << view.indices.bufferId
                    << name();
         return false;
@@ -432,14 +422,14 @@ bool ExternalGpuMeshResource::validateGpuObjects(QOpenGLFunctions_3_3_Core* gl, 
 
 /// VAO State
 
-bool ExternalGpuMeshResource::configureVAO(QOpenGLFunctions_3_3_Core* gl, const ExternalGpuMeshView& view, ExternalGpuMeshRevision revision)
+bool ExternalGpuGeometry::configureVAO(QOpenGLFunctions_3_3_Core* gl, const ExternalGpuGeometryView& view, ExternalGpuGeometryRevision revision)
 {
     if (m_vao == 0)
         gl->glGenVertexArrays(1, &m_vao);
 
     if (m_vao == 0)
     {
-        qWarning() << "ExternalGpuMeshResource configureVAO failed: VAO creation failed:" << name();
+        qWarning() << "ExternalGpuGeometry configureVAO failed: VAO creation failed:" << name();
         return false;
     }
 
@@ -469,7 +459,7 @@ bool ExternalGpuMeshResource::configureVAO(QOpenGLFunctions_3_3_Core* gl, const 
     gl->glBindBuffer(GL_ARRAY_BUFFER, 0);
     gl->glBindVertexArray(0);
 
-    qDebug() << "ExternalGpuMeshResource VAO configured:"
+    qDebug() << "ExternalGpuGeometry VAO configured:"
              << name()
              << "StructureRevision=" << static_cast<qulonglong>(revision)
              << "VAO=" << m_vao
@@ -481,7 +471,7 @@ bool ExternalGpuMeshResource::configureVAO(QOpenGLFunctions_3_3_Core* gl, const 
     return true;
 }
 
-void ExternalGpuMeshResource::releaseVAO(QOpenGLFunctions_3_3_Core* gl)
+void ExternalGpuGeometry::releaseVAO(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_vao != 0)
     {
@@ -494,7 +484,7 @@ void ExternalGpuMeshResource::releaseVAO(QOpenGLFunctions_3_3_Core* gl)
 
 /// 内部辅助
 
-bool ExternalGpuMeshResource::isSupportedComponentType(GLenum type) const
+bool ExternalGpuGeometry::isSupportedComponentType(GLenum type) const
 {
     switch (type)
     {
@@ -513,7 +503,7 @@ bool ExternalGpuMeshResource::isSupportedComponentType(GLenum type) const
     return false;
 }
 
-bool ExternalGpuMeshResource::isSupportedIndexType(GLenum type) const
+bool ExternalGpuGeometry::isSupportedIndexType(GLenum type) const
 {
     return type == GL_UNSIGNED_SHORT || type == GL_UNSIGNED_INT;
 }

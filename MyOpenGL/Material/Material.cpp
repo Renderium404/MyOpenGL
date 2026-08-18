@@ -10,6 +10,8 @@ const char* materialTypeName(MaterialType type)
         return "VertexColor";
     case MaterialTypeLit:
         return "Lit";
+    case MaterialTypeLitVertexColor:
+        return "LitVertexColor";
     }
 
     return "Unknown";
@@ -53,6 +55,11 @@ void Material::setVertexColor()
 void Material::setLit()
 {
     m_type = MaterialTypeLit;
+}
+
+void Material::setLitVertexColor()
+{
+    m_type = MaterialTypeLitVertexColor;
 }
 
 /// 基础颜色

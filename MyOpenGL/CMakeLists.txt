@@ -4,28 +4,22 @@ add_library(MyOpenGLCore STATIC
     Core/ResourceManager.cpp
     Core/ResourceManager.h
 
-    Resource/RenderableObject.cpp
-    Resource/RenderableObject.h
-    Resource/ExternalMeshData.h
-    Resource/ExternalMeshDataSource.h
-    Resource/ExternalGpuMeshData.h
-    Resource/ExternalGpuMeshDataSource.h
-    Resource/MeshResource.cpp
-    Resource/MeshResource.h
-    Resource/ExternalMeshResource.cpp
-    Resource/ExternalMeshResource.h
-    Resource/ExternalGpuMeshResource.cpp
-    Resource/ExternalGpuMeshResource.h
-    Resource/TextureResource.cpp
-    Resource/TextureResource.h
-    Resource/CurveResource.cpp
-    Resource/CurveResource.h
-    Resource/CoordinateSystemResource.cpp
-    Resource/CoordinateSystemResource.h
-    Resource/ViewNavigationResource.cpp
-    Resource/ViewNavigationResource.h
-    Resource/GridPlaneResource.cpp
-    Resource/GridPlaneResource.h
+    Resource/Geometry.cpp
+    Resource/Geometry.h
+    Resource/BufferGeometry.cpp
+    Resource/BufferGeometry.h
+    Resource/Curve.cpp
+    Resource/Curve.h
+    Resource/ExternalGeometryData.h
+    Resource/ExternalGeometryDataSource.h
+    Resource/ExternalGeometry.cpp
+    Resource/ExternalGeometry.h
+    Resource/ExternalGpuGeometryData.h
+    Resource/ExternalGpuGeometryDataSource.h
+    Resource/ExternalGpuGeometry.cpp
+    Resource/ExternalGpuGeometry.h
+    Resource/Texture.cpp
+    Resource/Texture.h
 
     Material/Material.cpp
     Material/Material.h
@@ -46,10 +40,14 @@ add_library(MyOpenGLCore STATIC
     Scene/AxisAlignedBoundingBox.h
     Scene/PrimitivePicking.cpp
     Scene/PrimitivePicking.h
-    Scene/MeshResourcePrimitivePickSource.cpp
-    Scene/MeshResourcePrimitivePickSource.h
+    Scene/BufferGeometryPickSource.cpp
+    Scene/BufferGeometryPickSource.h
     Scene/Transform.cpp
     Scene/Transform.h
+    Scene/RenderPart.cpp
+    Scene/RenderPart.h
+    Scene/RenderPartUpdate.cpp
+    Scene/RenderPartUpdate.h
     Scene/RenderItem.cpp
     Scene/RenderItem.h
     Scene/Scene.cpp
@@ -61,7 +59,6 @@ add_library(MyOpenGLCore STATIC
     Render/ShaderProgram.h
     Render/Renderer.cpp
     Render/Renderer.h
-
 )
 
 target_include_directories(MyOpenGLCore
@@ -79,10 +76,17 @@ target_link_libraries(MyOpenGLCore
 # Qt Widgets Viewer
 # ============================================================
 
-# Core 保持不依赖 Qt Widgets；可复用 QOpenGLWidget 单独放在 Viewer Target。
+# Core 保持不依赖 Qt Widgets；Viewer 自己拥有 Grid、Axis、ViewNavigation 等内部辅助几何。
 add_library(MyOpenGLViewer STATIC
     Viewer/OpenGLViewerWidget.cpp
     Viewer/OpenGLViewerWidget.h
+
+    Viewer/Geometry/CoordinateSystemGeometry.cpp
+    Viewer/Geometry/CoordinateSystemGeometry.h
+    Viewer/Geometry/GridPlaneGeometry.cpp
+    Viewer/Geometry/GridPlaneGeometry.h
+    Viewer/Geometry/ViewNavigationGeometry.cpp
+    Viewer/Geometry/ViewNavigationGeometry.h
 )
 
 target_include_directories(MyOpenGLViewer

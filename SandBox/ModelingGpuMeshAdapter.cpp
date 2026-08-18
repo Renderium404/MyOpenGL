@@ -32,9 +32,9 @@ ModelingGpuMeshSync* ModelingGpuMeshAdapter::sync() const
     return m_sync;
 }
 
-/// ExternalGpuMeshDataSource
+/// ExternalGpuGeometryDataSource
 
-bool ModelingGpuMeshAdapter::gpuView(ExternalGpuMeshView& view) const
+bool ModelingGpuMeshAdapter::gpuView(ExternalGpuGeometryView& view) const
 {
     if (m_mesh == 0)
         return false;
@@ -99,7 +99,7 @@ bool ModelingGpuMeshAdapter::gpuView(ExternalGpuMeshView& view) const
     return true;
 }
 
-ExternalGpuMeshRevision ModelingGpuMeshAdapter::structureRevision() const
+ExternalGpuGeometryRevision ModelingGpuMeshAdapter::structureRevision() const
 {
     if (m_mesh == 0)
         return 0;
@@ -119,7 +119,7 @@ bool ModelingGpuMeshAdapter::prepareGpuViewGL(QOpenGLFunctions_3_3_Core* gl) con
     return m_sync->waitExternalWriteCompleteGL(gl);
 }
 
-void ModelingGpuMeshAdapter::acknowledgeStructureRevision(ExternalGpuMeshRevision revision) const
+void ModelingGpuMeshAdapter::acknowledgeStructureRevision(ExternalGpuGeometryRevision revision) const
 {
     if (m_sync == 0)
         return;

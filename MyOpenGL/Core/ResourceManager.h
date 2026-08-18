@@ -1,7 +1,7 @@
 #ifndef RESOURCEMANAGER_H
 #define RESOURCEMANAGER_H
 
-#include "Core/Resource.h"
+#include "Resource.h"
 
 #include <map>
 

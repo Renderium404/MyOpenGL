@@ -1,48 +1,48 @@
-#include "TextureResource.h"
+#include "Texture.h"
 
 #include <QDebug>
 
 #include <cstring>
 
-TextureResource::TextureResource(const QString& name, ResourceUpdatePolicy updatePolicy)
+Texture::Texture(const QString& name, ResourceUpdatePolicy updatePolicy)
     : Resource(name, ResourceTypeTexture, updatePolicy)
     , m_textureId(0)
 {
 }
 
-TextureResource::~TextureResource()
+Texture::~Texture()
 {
 }
 
 /// 纹理基本信息
 
-int TextureResource::width() const
+int Texture::width() const
 {
     return m_image.width();
 }
 
-int TextureResource::height() const
+int Texture::height() const
 {
     return m_image.height();
 }
 
-bool TextureResource::isEmpty() const
+bool Texture::isEmpty() const
 {
     return m_image.isNull();
 }
 
-const QImage& TextureResource::image() const
+const QImage& Texture::image() const
 {
     return m_image;
 }
 
 /// CPU 数据
 
-bool TextureResource::setImage(const QImage& image)
+bool Texture::setImage(const QImage& image)
 {
     if (image.isNull())
     {
-        qWarning() << "TextureResource setImage failed: image is null:" << name();
+        qWarning() << "Texture setImage failed: image is null:" << name();
         return false;
     }
 
@@ -53,29 +53,29 @@ bool TextureResource::setImage(const QImage& image)
     return true;
 }
 
-bool TextureResource::updateRegion(int x, int y, const QImage& regionImage)
+bool Texture::updateRegion(int x, int y, const QImage& regionImage)
 {
     if (m_image.isNull())
     {
-        qWarning() << "TextureResource updateRegion failed: texture image is empty:" << name();
+        qWarning() << "Texture updateRegion failed: texture image is empty:" << name();
         return false;
     }
 
     if (regionImage.isNull())
     {
-        qWarning() << "TextureResource updateRegion failed: region image is null:" << name();
+        qWarning() << "Texture updateRegion failed: region image is null:" << name();
         return false;
     }
 
     if (x < 0 || y < 0)
     {
-        qWarning() << "TextureResource updateRegion failed: region position cannot be negative:" << name();
+        qWarning() << "Texture updateRegion failed: region position cannot be negative:" << name();
         return false;
     }
 
     if (x + regionImage.width() > m_image.width() || y + regionImage.height() > m_image.height())
     {
-        qWarning() << "TextureResource updateRegion failed: region exceeds texture bounds:" << name();
+        qWarning() << "Texture updateRegion failed: region exceeds texture bounds:" << name();
         return false;
     }
 
@@ -97,26 +97,26 @@ bool TextureResource::updateRegion(int x, int y, const QImage& regionImage)
 
 /// 增量更新状态
 
-int TextureResource::dirtyRegionCount() const
+int Texture::dirtyRegionCount() const
 {
     return static_cast<int>(m_dirtyRegions.size());
 }
 
-const std::vector<QRect>& TextureResource::dirtyRegions() const
+const std::vector<QRect>& Texture::dirtyRegions() const
 {
     return m_dirtyRegions;
 }
 
 /// GPU 对象
 
-GLuint TextureResource::textureId() const
+GLuint Texture::textureId() const
 {
     return m_textureId;
 }
 
 /// Resource GPU 实现
 
-bool TextureResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
+bool Texture::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateData())
         return false;
@@ -125,7 +125,7 @@ bool TextureResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 
     if (m_textureId == 0)
     {
-        qWarning() << "TextureResource initialize failed: OpenGL texture creation failed:" << name();
+        qWarning() << "Texture initialize failed: OpenGL texture creation failed:" << name();
         return false;
     }
 
@@ -147,7 +147,7 @@ bool TextureResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool TextureResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
+bool Texture::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateData())
         return false;
@@ -165,7 +165,7 @@ bool TextureResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool TextureResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
+bool Texture::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_dirtyRegions.empty())
         return true;
@@ -191,7 +191,7 @@ bool TextureResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-void TextureResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
+void Texture::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_textureId != 0)
     {
@@ -204,17 +204,17 @@ void TextureResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 
 /// 内部辅助
 
-bool TextureResource::validateData() const
+bool Texture::validateData() const
 {
     if (m_image.isNull())
     {
-        qWarning() << "TextureResource validation failed: image is empty:" << name();
+        qWarning() << "Texture validation failed: image is empty:" << name();
         return false;
     }
 
     if (m_image.format() != QImage::Format_RGBA8888)
     {
-        qWarning() << "TextureResource validation failed: image format is not RGBA8888:" << name();
+        qWarning() << "Texture validation failed: image format is not RGBA8888:" << name();
         return false;
     }
 

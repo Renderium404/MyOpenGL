@@ -8,15 +8,11 @@ typedef unsigned int ResourceId;
 
 const ResourceId InvalidResourceId = 0;
 
-/// Resource 语义类型。
+/// Resource 系统级资源类别。
 enum ResourceType
 {
-    ResourceTypeMesh,
-    ResourceTypeTexture,
-    ResourceTypeCurve,
-    ResourceTypeCoordinateSystem,
-    ResourceTypeViewNavigation,
-    ResourceTypeGridPlane
+    ResourceTypeGeometry, // 可直接提供几何绘制数据的资源。
+    ResourceTypeTexture   // 提供 Shader 采样数据的纹理资源。
 };
 
 /// Resource CPU 数据的典型更新频率。
@@ -42,7 +38,7 @@ const char* resourceDirtyStateName(ResourceDirtyState state);
 class ResourceManager;
 
 /// GPU Resource 基类。
-/// 统一管理 ResourceId、Dirty State 和 GPU 生命周期，但不规定具体 GPU 对象类型。
+/// 统一管理 ResourceId、Dirty State 和 GPU 生命周期，不规定具体资源数据和绘制方式。
 class Resource
 {
 public:
@@ -85,12 +81,12 @@ private:
     void setId(ResourceId id);
 
 private:
-    ResourceId m_id;                         // ResourceManager 分配的唯一 ID。
-    QString m_name;                          // Resource 调试名称。
-    ResourceType m_type;                     // Resource 语义类型。
-    ResourceUpdatePolicy m_updatePolicy;     // CPU 数据典型更新频率。
-    ResourceDirtyState m_dirtyState;         // 当前 CPU 相对于 GPU Cache 的同步状态。
-    bool m_initialized;                      // 当前 GPU 对象是否已经完整创建。
+    ResourceId m_id;                     // ResourceManager 分配的唯一 ID。
+    QString m_name;                      // Resource 调试名称。
+    ResourceType m_type;                 // 当前系统级资源类别。
+    ResourceUpdatePolicy m_updatePolicy; // CPU 数据典型更新频率。
+    ResourceDirtyState m_dirtyState;     // 当前 CPU 相对于 GPU Cache 的同步状态。
+    bool m_initialized;                  // 当前 GPU 对象是否已经完整创建。
 };
 
 #endif // RESOURCE_H

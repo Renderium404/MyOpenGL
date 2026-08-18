@@ -1,10 +1,9 @@
-#ifndef GRIDPLANERESOURCE_H
-#define GRIDPLANERESOURCE_H
+#ifndef GRIDPLANEGEOMETRY_H
+#define GRIDPLANEGEOMETRY_H
 
-#include "Resource/MeshResource.h"
+#include "MyOpenGL/Resource/BufferGeometry.h"
 
 /// 网格平面方向。
-/// 描述 GridPlaneResource 在局部坐标系中的主平面。
 enum GridPlaneOrientation
 {
     GridPlaneXY, // Z = 0，在 XY 平面生成参考网格。
@@ -12,12 +11,12 @@ enum GridPlaneOrientation
     GridPlaneYZ  // X = 0，在 YZ 平面生成参考网格。
 };
 
-/// 场景参考网格平面资源。
+/// Viewer 场景参考网格几何。
 /// 根据平面方向、半尺寸和间距生成规则 GL_LINES 网格。
-class GridPlaneResource : public MeshResource
+class GridPlaneGeometry : public BufferGeometry
 {
 public:
-    explicit GridPlaneResource(const QString& name = "GridPlane");
+    explicit GridPlaneGeometry(const QString& name = "GridPlane");
 
     /// 网格参数
     GridPlaneOrientation orientation() const;
@@ -39,4 +38,4 @@ private:
     float m_spacing;                     // 相邻平行网格线之间的局部坐标距离。
 };
 
-#endif // GRIDPLANERESOURCE_H
+#endif // GRIDPLANEGEOMETRY_H

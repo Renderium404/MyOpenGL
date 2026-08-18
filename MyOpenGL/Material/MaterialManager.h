@@ -1,7 +1,7 @@
 #ifndef MATERIALMANAGER_H
 #define MATERIALMANAGER_H
 
-#include "Material/Material.h"
+#include "Material.h"
 
 #include <cstddef>
 #include <map>
@@ -20,7 +20,7 @@ public:
     const Material* get(MaterialId id) const;       // 获取指定只读材质，不存在时返回 0。
     bool contains(MaterialId id) const;
     std::size_t count() const;
-    bool remove(MaterialId id);                     // 删除指定材质，不影响材质引用的 TextureResource。
+    bool remove(MaterialId id);                     // 删除指定材质，不影响材质引用的 Texture。
     void clear();                                   // 删除全部材质。
 
 private:

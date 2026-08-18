@@ -17,9 +17,9 @@ const ModelingMesh* ModelingMeshAdapter::mesh() const
     return m_mesh;
 }
 
-/// ExternalMeshDataSource
+/// ExternalGeometryDataSource
 
-bool ModelingMeshAdapter::dataView(ExternalMeshDataView& view) const
+bool ModelingMeshAdapter::dataView(ExternalGeometryDataView& view) const
 {
     if (m_mesh == 0)
         return false;
@@ -86,7 +86,7 @@ bool ModelingMeshAdapter::dataView(ExternalMeshDataView& view) const
     return true;
 }
 
-ExternalMeshRevision ModelingMeshAdapter::structureRevision() const
+ExternalGeometryRevision ModelingMeshAdapter::structureRevision() const
 {
     if (m_mesh == 0)
         return 0;
@@ -94,7 +94,7 @@ ExternalMeshRevision ModelingMeshAdapter::structureRevision() const
     return m_mesh->structureRevision();
 }
 
-ExternalMeshRevision ModelingMeshAdapter::contentRevision() const
+ExternalGeometryRevision ModelingMeshAdapter::contentRevision() const
 {
     if (m_mesh == 0)
         return 0;
@@ -102,7 +102,7 @@ ExternalMeshRevision ModelingMeshAdapter::contentRevision() const
     return m_mesh->contentRevision();
 }
 
-bool ModelingMeshAdapter::changesSince(ExternalMeshRevision previousRevision, ExternalMeshChangeSet& changeSet) const
+bool ModelingMeshAdapter::changesSince(ExternalGeometryRevision previousRevision, ExternalGeometryChangeSet& changeSet) const
 {
     if (m_mesh == 0)
         return false;
@@ -120,7 +120,7 @@ bool ModelingMeshAdapter::changesSince(ExternalMeshRevision previousRevision, Ex
     {
         const ModelingMeshChange& modelingChange = modelingChanges[i];
 
-        ExternalMeshDirtyRange range;
+        ExternalGeometryDirtyRange range;
 
         switch (modelingChange.buffer)
         {
@@ -137,7 +137,7 @@ bool ModelingMeshAdapter::changesSince(ExternalMeshRevision previousRevision, Ex
             break;
 
         case ModelingMeshBufferIndex:
-            range.bufferIndex = ExternalMeshIndexBuffer;
+            range.bufferIndex = ExternalGeometryIndexBuffer;
             break;
         }
 

@@ -1,9 +1,9 @@
-#include "GridPlaneResource.h"
+#include "GridPlaneGeometry.h"
 
 #include <QDebug>
 
-GridPlaneResource::GridPlaneResource(const QString& name)
-    : MeshResource(name, ResourceTypeGridPlane, ResourceUpdateStatic, Lines)
+GridPlaneGeometry::GridPlaneGeometry(const QString& name)
+    : BufferGeometry(name, ResourceUpdateStatic, Lines)
     , m_orientation(GridPlaneXZ)
     , m_halfSize(10.0f) // 默认网格覆盖 -10 到 +10，共 20 个局部坐标单位。
     , m_spacing(1.0f)   // 默认每 1 个局部坐标单位生成一条平行网格线。
@@ -13,32 +13,32 @@ GridPlaneResource::GridPlaneResource(const QString& name)
 
 /// 网格参数
 
-GridPlaneOrientation GridPlaneResource::orientation() const
+GridPlaneOrientation GridPlaneGeometry::orientation() const
 {
     return m_orientation;
 }
 
-float GridPlaneResource::halfSize() const
+float GridPlaneGeometry::halfSize() const
 {
     return m_halfSize;
 }
 
-float GridPlaneResource::spacing() const
+float GridPlaneGeometry::spacing() const
 {
     return m_spacing;
 }
 
-int GridPlaneResource::divisionCount() const
+int GridPlaneGeometry::divisionCount() const
 {
     // 参数均为正数，因此整数转换等价于 floor(halfSize / spacing)。
     return static_cast<int>(m_halfSize / m_spacing);
 }
 
-bool GridPlaneResource::setOrientation(GridPlaneOrientation orientation)
+bool GridPlaneGeometry::setOrientation(GridPlaneOrientation orientation)
 {
     if (orientation != GridPlaneXY && orientation != GridPlaneXZ && orientation != GridPlaneYZ)
     {
-        qWarning() << "GridPlaneResource setOrientation failed: invalid orientation:" << name();
+        qWarning() << "GridPlaneGeometry setOrientation failed: invalid orientation:" << name();
         return false;
     }
 
@@ -50,11 +50,11 @@ bool GridPlaneResource::setOrientation(GridPlaneOrientation orientation)
     return true;
 }
 
-bool GridPlaneResource::setHalfSize(float halfSize)
+bool GridPlaneGeometry::setHalfSize(float halfSize)
 {
     if (halfSize <= 0.0f)
     {
-        qWarning() << "GridPlaneResource setHalfSize failed: halfSize must be greater than zero:" << name();
+        qWarning() << "GridPlaneGeometry setHalfSize failed: halfSize must be greater than zero:" << name();
         return false;
     }
 
@@ -66,11 +66,11 @@ bool GridPlaneResource::setHalfSize(float halfSize)
     return true;
 }
 
-bool GridPlaneResource::setSpacing(float spacing)
+bool GridPlaneGeometry::setSpacing(float spacing)
 {
     if (spacing <= 0.0f)
     {
-        qWarning() << "GridPlaneResource setSpacing failed: spacing must be greater than zero:" << name();
+        qWarning() << "GridPlaneGeometry setSpacing failed: spacing must be greater than zero:" << name();
         return false;
     }
 
@@ -82,17 +82,17 @@ bool GridPlaneResource::setSpacing(float spacing)
     return true;
 }
 
-bool GridPlaneResource::setGrid(float halfSize, float spacing)
+bool GridPlaneGeometry::setGrid(float halfSize, float spacing)
 {
     if (halfSize <= 0.0f)
     {
-        qWarning() << "GridPlaneResource setGrid failed: halfSize must be greater than zero:" << name();
+        qWarning() << "GridPlaneGeometry setGrid failed: halfSize must be greater than zero:" << name();
         return false;
     }
 
     if (spacing <= 0.0f)
     {
-        qWarning() << "GridPlaneResource setGrid failed: spacing must be greater than zero:" << name();
+        qWarning() << "GridPlaneGeometry setGrid failed: spacing must be greater than zero:" << name();
         return false;
     }
 
@@ -107,17 +107,17 @@ bool GridPlaneResource::setGrid(float halfSize, float spacing)
 
 /// 几何生成
 
-void GridPlaneResource::rebuildGeometry()
+void GridPlaneGeometry::rebuildGeometry()
 {
-    std::vector<MeshVertexAttribute> attributes;
+    std::vector<GeometryVertexAttribute> attributes;
 
-    MeshVertexAttribute positionAttribute;
+    GeometryVertexAttribute positionAttribute;
     positionAttribute.location = 0;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
-    MeshVertexAttribute colorAttribute;
+    GeometryVertexAttribute colorAttribute;
     colorAttribute.location = 1;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;

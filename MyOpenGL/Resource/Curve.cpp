@@ -1,20 +1,20 @@
-#include "CurveResource.h"
+#include "Curve.h"
 
 #include <QDebug>
 
-CurveResource::CurveResource(const QString& name)
-    : MeshResource(name, ResourceTypeCurve, ResourceUpdateDynamic, LineStrip)
+Curve::Curve(const QString& name)
+    : BufferGeometry(name, ResourceUpdateDynamic, LineStrip)
     , m_color(1.0f, 1.0f, 1.0f)
 {
-    std::vector<MeshVertexAttribute> attributes;
+    std::vector<GeometryVertexAttribute> attributes;
 
-    MeshVertexAttribute positionAttribute;
+    GeometryVertexAttribute positionAttribute;
     positionAttribute.location = 0;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
-    MeshVertexAttribute colorAttribute;
+    GeometryVertexAttribute colorAttribute;
     colorAttribute.location = 1;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;
@@ -26,29 +26,29 @@ CurveResource::CurveResource(const QString& name)
 
 /// 曲线基本信息
 
-int CurveResource::pointCount() const
+int Curve::pointCount() const
 {
     return static_cast<int>(m_points.size());
 }
 
-const std::vector<QVector3D>& CurveResource::points() const
+const std::vector<QVector3D>& Curve::points() const
 {
     return m_points;
 }
 
-const QVector3D& CurveResource::color() const
+const QVector3D& Curve::color() const
 {
     return m_color;
 }
 
 /// 曲线完整数据
 
-bool CurveResource::setPoints(const std::vector<QVector3D>& points)
+bool Curve::setPoints(const std::vector<QVector3D>& points)
 {
     // GL_LINE_STRIP 至少需要两个控制点才能形成一条有效线段。
     if (points.size() < 2)
     {
-        qWarning() << "CurveResource setPoints failed: curve requires at least 2 points:" << name();
+        qWarning() << "Curve setPoints failed: curve requires at least 2 points:" << name();
         return false;
     }
 
@@ -57,11 +57,11 @@ bool CurveResource::setPoints(const std::vector<QVector3D>& points)
     return true;
 }
 
-bool CurveResource::setColor(const QVector3D& color)
+bool Curve::setColor(const QVector3D& color)
 {
     if (color.x() < 0.0f || color.y() < 0.0f || color.z() < 0.0f)
     {
-        qWarning() << "CurveResource setColor failed: color components cannot be negative:" << name();
+        qWarning() << "Curve setColor failed: color components cannot be negative:" << name();
         return false;
     }
 
@@ -79,11 +79,11 @@ bool CurveResource::setColor(const QVector3D& color)
 
 /// 曲线动态编辑
 
-bool CurveResource::updatePoint(int pointIndex, const QVector3D& point)
+bool Curve::updatePoint(int pointIndex, const QVector3D& point)
 {
     if (pointIndex < 0 || pointIndex >= static_cast<int>(m_points.size()))
     {
-        qWarning() << "CurveResource updatePoint failed: point index is out of range:" << pointIndex << name();
+        qWarning() << "Curve updatePoint failed: point index is out of range:" << pointIndex << name();
         return false;
     }
 
@@ -106,11 +106,11 @@ bool CurveResource::updatePoint(int pointIndex, const QVector3D& point)
     return updateVertexData(positionValueOffset, positionValues, 3);
 }
 
-bool CurveResource::appendPoint(const QVector3D& point)
+bool Curve::appendPoint(const QVector3D& point)
 {
     if (m_points.size() < 2)
     {
-        qWarning() << "CurveResource appendPoint failed: initialize the curve with setPoints() first:" << name();
+        qWarning() << "Curve appendPoint failed: initialize the curve with setPoints() first:" << name();
         return false;
     }
 
@@ -121,18 +121,18 @@ bool CurveResource::appendPoint(const QVector3D& point)
     return true;
 }
 
-bool CurveResource::removePoint(int pointIndex)
+bool Curve::removePoint(int pointIndex)
 {
     if (pointIndex < 0 || pointIndex >= static_cast<int>(m_points.size()))
     {
-        qWarning() << "CurveResource removePoint failed: point index is out of range:" << pointIndex << name();
+        qWarning() << "Curve removePoint failed: point index is out of range:" << pointIndex << name();
         return false;
     }
 
     // 删除后仍必须保留至少两个点，否则无法形成 GL_LINE_STRIP。
     if (m_points.size() <= 2)
     {
-        qWarning() << "CurveResource removePoint failed: curve must keep at least 2 points:" << name();
+        qWarning() << "Curve removePoint failed: curve must keep at least 2 points:" << name();
         return false;
     }
 
@@ -145,7 +145,7 @@ bool CurveResource::removePoint(int pointIndex)
 
 /// 几何生成
 
-void CurveResource::rebuildGeometry()
+void Curve::rebuildGeometry()
 {
     std::vector<GLfloat> vertices;
     std::vector<GLuint> indices;

@@ -1,24 +1,30 @@
 #include "Renderer.h"
 
-#include "Camera/Camera.h"
-#include "Core/ResourceManager.h"
-#include "Light/Light.h"
-#include "Light/LightManager.h"
-#include "Material/Material.h"
-#include "Render/RenderContext.h"
-#include "Resource/RenderableObject.h"
-#include "Resource/TextureResource.h"
-#include "Scene/RenderItem.h"
-#include "Scene/Scene.h"
+#include "MyOpenGL/Camera/Camera.h"
+#include "MyOpenGL/Core/ResourceManager.h"
+#include "MyOpenGL/Light/Light.h"
+#include "MyOpenGL/Light/LightManager.h"
+#include "MyOpenGL/Material/Material.h"
+#include "MyOpenGL/Render/RenderContext.h"
+#include "MyOpenGL/Resource/Geometry.h"
+#include "MyOpenGL/Scene/RenderItem.h"
+#include "MyOpenGL/Scene/Scene.h"
 
 #include <QDebug>
 #include <QMatrix3x3>
+#include <QtMath>
+
+#include <vector>
 
 Renderer::Renderer()
     : m_context(0)
     , m_colorModelLocation(-1)
     , m_colorViewLocation(-1)
     , m_colorProjectionLocation(-1)
+    , m_solidModelLocation(-1)
+    , m_solidViewLocation(-1)
+    , m_solidProjectionLocation(-1)
+    , m_solidColorLocation(-1)
     , m_litModelLocation(-1)
     , m_litViewLocation(-1)
     , m_litProjectionLocation(-1)
@@ -27,19 +33,25 @@ Renderer::Renderer()
     , m_litBaseColorLocation(-1)
     , m_litSpecularColorLocation(-1)
     , m_litShininessLocation(-1)
-    , m_litUseTextureLocation(-1)
-    , m_litTextureLocation(-1)
+    , m_litUseVertexColorLocation(-1)
     , m_litAmbientColorLocation(-1)
     , m_litAmbientIntensityLocation(-1)
+    , m_litLightCountLocation(-1)
+    , m_litLightTypeLocation(-1)
+    , m_litLightPositionLocation(-1)
     , m_litLightDirectionLocation(-1)
     , m_litLightColorLocation(-1)
     , m_litLightIntensityLocation(-1)
+    , m_litLightRangeLocation(-1)
+    , m_litLightInnerConeCosLocation(-1)
+    , m_litLightOuterConeCosLocation(-1)
     , m_cameraPosition(0.0f, 0.0f, 0.0f)
     , m_clearColor(0.1f, 0.1f, 0.1f, 1.0f)
     , m_viewportWidth(0)
     , m_viewportHeight(0)
     , m_initialized(false)
     , m_frameActive(false)
+    , m_lightLimitWarningIssued(false)
 {
 }
 
@@ -90,68 +102,148 @@ bool Renderer::initialize(RenderContext* context)
         "    FragColor = vec4(vertexColor, 1.0);\n"
         "}\n";
 
+    const char* solidColorVertexShader =
+        "#version 330 core\n"
+        "layout(location = 0) in vec3 aPosition;\n"
+        "uniform mat4 model;\n"
+        "uniform mat4 view;\n"
+        "uniform mat4 projection;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = projection * view * model * vec4(aPosition, 1.0);\n"
+        "}\n";
+
+    const char* solidColorFragmentShader =
+        "#version 330 core\n"
+        "uniform vec4 color;\n"
+        "out vec4 FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    FragColor = color;\n"
+        "}\n";
+
     const char* litVertexShader =
         "#version 330 core\n"
         "layout(location = 0) in vec3 aPosition;\n"
         "layout(location = 1) in vec3 aNormal;\n"
-        "layout(location = 2) in vec2 aTexCoord;\n"
+        "layout(location = 3) in vec4 aVertexColor;\n"
         "uniform mat4 model;\n"
         "uniform mat4 view;\n"
         "uniform mat4 projection;\n"
         "uniform mat3 normalMatrix;\n"
         "out vec3 fragmentPosition;\n"
         "out vec3 fragmentNormal;\n"
-        "out vec2 texCoord;\n"
+        "out vec4 vertexColor;\n"
         "void main()\n"
         "{\n"
         "    vec4 worldPosition = model * vec4(aPosition, 1.0);\n"
         "    fragmentPosition = worldPosition.xyz;\n"
         "    fragmentNormal = normalize(normalMatrix * aNormal);\n"
-        "    texCoord = aTexCoord;\n"
+        "    vertexColor = aVertexColor;\n"
         "    gl_Position = projection * view * worldPosition;\n"
         "}\n";
 
     const char* litFragmentShader =
         "#version 330 core\n"
+        "const int MaxLights = 8;\n"
+        "const int LightTypeDirectional = 0;\n"
+        "const int LightTypePoint = 1;\n"
+        "const int LightTypeSpot = 2;\n"
         "in vec3 fragmentPosition;\n"
         "in vec3 fragmentNormal;\n"
-        "in vec2 texCoord;\n"
+        "in vec4 vertexColor;\n"
         "uniform vec3 cameraPosition;\n"
         "uniform vec4 baseColor;\n"
         "uniform vec3 specularColor;\n"
         "uniform float shininess;\n"
-        "uniform bool useDiffuseTexture;\n"
-        "uniform sampler2D diffuseTexture;\n"
+        "uniform bool useVertexColor;\n"
         "uniform vec3 ambientColor;\n"
         "uniform float ambientIntensity;\n"
-        "uniform vec3 directionalLightDirection;\n"
-        "uniform vec3 directionalLightColor;\n"
-        "uniform float directionalLightIntensity;\n"
+        "uniform int lightCount;\n"
+        "uniform int lightType[MaxLights];\n"
+        "uniform vec3 lightPosition[MaxLights];\n"
+        "uniform vec3 lightDirection[MaxLights];\n"
+        "uniform vec3 lightColor[MaxLights];\n"
+        "uniform float lightIntensity[MaxLights];\n"
+        "uniform float lightRange[MaxLights];\n"
+        "uniform float lightInnerConeCos[MaxLights];\n"
+        "uniform float lightOuterConeCos[MaxLights];\n"
         "out vec4 FragColor;\n"
         "void main()\n"
         "{\n"
         "    vec4 surfaceColor = baseColor;\n"
-        "    if (useDiffuseTexture)\n"
-        "        surfaceColor *= texture(diffuseTexture, texCoord);\n"
+        "    if (useVertexColor)\n"
+        "        surfaceColor *= vertexColor;\n"
+        "\n"
         "    vec3 normal = normalize(fragmentNormal);\n"
-        "    vec3 lightDirection = normalize(-directionalLightDirection);\n"
         "    vec3 viewDirection = normalize(cameraPosition - fragmentPosition);\n"
-        "    vec3 halfDirection = normalize(lightDirection + viewDirection);\n"
-        "    float diffuseFactor = max(dot(normal, lightDirection), 0.0);\n"
-        "    float specularFactor = 0.0;\n"
-        "    if (diffuseFactor > 0.0)\n"
-        "        specularFactor = pow(max(dot(normal, halfDirection), 0.0), shininess);\n"
+        "    vec3 diffuseAccumulation = vec3(0.0);\n"
+        "    vec3 specularAccumulation = vec3(0.0);\n"
+        "\n"
+        "    for (int i = 0; i < MaxLights; ++i)\n"
+        "    {\n"
+        "        if (i >= lightCount)\n"
+        "            break;\n"
+        "\n"
+        "        vec3 toLight = vec3(0.0);\n"
+        "        float attenuation = 1.0;\n"
+        "\n"
+        "        if (lightType[i] == LightTypeDirectional)\n"
+        "        {\n"
+        "            toLight = normalize(-lightDirection[i]);\n"
+        "        }\n"
+        "        else\n"
+        "        {\n"
+        "            vec3 delta = lightPosition[i] - fragmentPosition;\n"
+        "            float distanceToLight = length(delta);\n"
+        "            float safeRange = max(lightRange[i], 0.0001);\n"
+        "\n"
+        "            if (distanceToLight <= 0.000001 || distanceToLight >= safeRange)\n"
+        "                continue;\n"
+        "\n"
+        "            toLight = delta / distanceToLight;\n"
+        "            float normalizedDistance = clamp(distanceToLight / safeRange, 0.0, 1.0);\n"
+        "            attenuation = 1.0 - normalizedDistance;\n"
+        "            attenuation *= attenuation;\n"
+        "\n"
+        "            if (lightType[i] == LightTypeSpot)\n"
+        "            {\n"
+        "                vec3 fromLight = -toLight;\n"
+        "                float coneCos = dot(normalize(lightDirection[i]), fromLight);\n"
+        "                float coneFactor = smoothstep(lightOuterConeCos[i], lightInnerConeCos[i], coneCos);\n"
+        "                attenuation *= coneFactor;\n"
+        "            }\n"
+        "        }\n"
+        "\n"
+        "        float diffuseFactor = max(dot(normal, toLight), 0.0);\n"
+        "\n"
+        "        if (diffuseFactor <= 0.0 || attenuation <= 0.0)\n"
+        "            continue;\n"
+        "\n"
+        "        vec3 radiance = lightColor[i] * lightIntensity[i] * attenuation;\n"
+        "        diffuseAccumulation += surfaceColor.rgb * radiance * diffuseFactor;\n"
+        "\n"
+        "        vec3 halfDirection = normalize(toLight + viewDirection);\n"
+        "        float specularFactor = pow(max(dot(normal, halfDirection), 0.0), shininess);\n"
+        "        specularAccumulation += specularColor * radiance * specularFactor;\n"
+        "    }\n"
+        "\n"
         "    vec3 ambient = surfaceColor.rgb * ambientColor * ambientIntensity;\n"
-        "    vec3 diffuse = surfaceColor.rgb * directionalLightColor * directionalLightIntensity * diffuseFactor;\n"
-        "    vec3 specular = specularColor * directionalLightColor * directionalLightIntensity * specularFactor;\n"
-        "    FragColor = vec4(ambient + diffuse + specular, surfaceColor.a);\n"
+        "    FragColor = vec4(ambient + diffuseAccumulation + specularAccumulation, surfaceColor.a);\n"
         "}\n";
 
     if (!m_vertexColorProgram.initialize(gl, vertexColorVertexShader, vertexColorFragmentShader))
         return false;
 
+    if (!m_solidColorProgram.initialize(gl, solidColorVertexShader, solidColorFragmentShader))
+    {
+        m_vertexColorProgram.release(gl);
+        return false;
+    }
+
     if (!m_litProgram.initialize(gl, litVertexShader, litFragmentShader))
     {
+        m_solidColorProgram.release(gl);
         m_vertexColorProgram.release(gl);
         return false;
     }
@@ -159,6 +251,11 @@ bool Renderer::initialize(RenderContext* context)
     m_colorModelLocation = m_vertexColorProgram.uniformLocation(gl, "model");
     m_colorViewLocation = m_vertexColorProgram.uniformLocation(gl, "view");
     m_colorProjectionLocation = m_vertexColorProgram.uniformLocation(gl, "projection");
+
+    m_solidModelLocation = m_solidColorProgram.uniformLocation(gl, "model");
+    m_solidViewLocation = m_solidColorProgram.uniformLocation(gl, "view");
+    m_solidProjectionLocation = m_solidColorProgram.uniformLocation(gl, "projection");
+    m_solidColorLocation = m_solidColorProgram.uniformLocation(gl, "color");
 
     m_litModelLocation = m_litProgram.uniformLocation(gl, "model");
     m_litViewLocation = m_litProgram.uniformLocation(gl, "view");
@@ -168,23 +265,33 @@ bool Renderer::initialize(RenderContext* context)
     m_litBaseColorLocation = m_litProgram.uniformLocation(gl, "baseColor");
     m_litSpecularColorLocation = m_litProgram.uniformLocation(gl, "specularColor");
     m_litShininessLocation = m_litProgram.uniformLocation(gl, "shininess");
-    m_litUseTextureLocation = m_litProgram.uniformLocation(gl, "useDiffuseTexture");
-    m_litTextureLocation = m_litProgram.uniformLocation(gl, "diffuseTexture");
+    m_litUseVertexColorLocation = m_litProgram.uniformLocation(gl, "useVertexColor");
     m_litAmbientColorLocation = m_litProgram.uniformLocation(gl, "ambientColor");
     m_litAmbientIntensityLocation = m_litProgram.uniformLocation(gl, "ambientIntensity");
-    m_litLightDirectionLocation = m_litProgram.uniformLocation(gl, "directionalLightDirection");
-    m_litLightColorLocation = m_litProgram.uniformLocation(gl, "directionalLightColor");
-    m_litLightIntensityLocation = m_litProgram.uniformLocation(gl, "directionalLightIntensity");
+    m_litLightCountLocation = m_litProgram.uniformLocation(gl, "lightCount");
+    m_litLightTypeLocation = m_litProgram.uniformLocation(gl, "lightType[0]");
+    m_litLightPositionLocation = m_litProgram.uniformLocation(gl, "lightPosition[0]");
+    m_litLightDirectionLocation = m_litProgram.uniformLocation(gl, "lightDirection[0]");
+    m_litLightColorLocation = m_litProgram.uniformLocation(gl, "lightColor[0]");
+    m_litLightIntensityLocation = m_litProgram.uniformLocation(gl, "lightIntensity[0]");
+    m_litLightRangeLocation = m_litProgram.uniformLocation(gl, "lightRange[0]");
+    m_litLightInnerConeCosLocation = m_litProgram.uniformLocation(gl, "lightInnerConeCos[0]");
+    m_litLightOuterConeCosLocation = m_litProgram.uniformLocation(gl, "lightOuterConeCos[0]");
 
     if (m_colorModelLocation < 0 || m_colorViewLocation < 0 || m_colorProjectionLocation < 0 ||
+        m_solidModelLocation < 0 || m_solidViewLocation < 0 || m_solidProjectionLocation < 0 || m_solidColorLocation < 0 ||
         m_litModelLocation < 0 || m_litViewLocation < 0 || m_litProjectionLocation < 0 ||
         m_litNormalLocation < 0 || m_litCameraPositionLocation < 0 || m_litBaseColorLocation < 0 ||
-        m_litSpecularColorLocation < 0 || m_litShininessLocation < 0 || m_litUseTextureLocation < 0 ||
-        m_litTextureLocation < 0 || m_litAmbientColorLocation < 0 || m_litAmbientIntensityLocation < 0 ||
-        m_litLightDirectionLocation < 0 || m_litLightColorLocation < 0 || m_litLightIntensityLocation < 0)
+        m_litSpecularColorLocation < 0 || m_litShininessLocation < 0 ||
+        m_litUseVertexColorLocation < 0 ||
+        m_litAmbientColorLocation < 0 || m_litAmbientIntensityLocation < 0 ||
+        m_litLightCountLocation < 0 || m_litLightTypeLocation < 0 || m_litLightPositionLocation < 0 ||
+        m_litLightDirectionLocation < 0 || m_litLightColorLocation < 0 || m_litLightIntensityLocation < 0 ||
+        m_litLightRangeLocation < 0 || m_litLightInnerConeCosLocation < 0 || m_litLightOuterConeCosLocation < 0)
     {
         qWarning() << "Renderer initialize failed: required Shader Uniform was not found.";
         m_vertexColorProgram.release(gl);
+        m_solidColorProgram.release(gl);
         m_litProgram.release(gl);
         return false;
     }
@@ -208,6 +315,7 @@ void Renderer::release()
     }
 
     m_vertexColorProgram.release(gl);
+    m_solidColorProgram.release(gl);
     m_litProgram.release(gl);
 
     m_context = 0;
@@ -215,6 +323,7 @@ void Renderer::release()
     m_viewportHeight = 0;
     m_initialized = false;
     m_frameActive = false;
+    m_lightLimitWarningIssued = false;
 }
 
 /// Render State
@@ -279,35 +388,35 @@ bool Renderer::beginFrame(const Camera* camera, int viewportWidth, int viewportH
     return true;
 }
 
-bool Renderer::drawVertexColorMesh(const RenderableObject* mesh, const QMatrix4x4& model, bool depthTest)
+bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const QMatrix4x4& model, bool depthTest)
 {
     if (!m_frameActive)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: beginFrame() has not been called.";
+        qWarning() << "Renderer drawVertexColorGeometry failed: beginFrame() has not been called.";
         return false;
     }
 
-    if (mesh == 0)
+    if (geometry == 0)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: mesh is null.";
+        qWarning() << "Renderer drawVertexColorGeometry failed: geometry is null.";
         return false;
     }
 
-    if (!mesh->objectInitialized() || mesh->vao() == 0)
+    if (!geometry->isInitialized() || geometry->vao() == 0)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: mesh GPU resource is not initialized:" << mesh->objectName();
+        qWarning() << "Renderer drawVertexColorGeometry failed: geometry GPU resource is not initialized:" << geometry->name();
         return false;
     }
 
-    if (mesh->indexCount() <= 0)
+    if (geometry->indexCount() <= 0)
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: mesh contains no indices:" << mesh->objectName();
+        qWarning() << "Renderer drawVertexColorGeometry failed: geometry contains no indices:" << geometry->name();
         return false;
     }
 
-    if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3))
+    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
     {
-        qWarning() << "Renderer drawVertexColorMesh failed: position + color layout is required:" << mesh->objectName();
+        qWarning() << "Renderer drawVertexColorGeometry failed: position + color layout is required:" << geometry->name();
         return false;
     }
 
@@ -318,7 +427,7 @@ bool Renderer::drawVertexColorMesh(const RenderableObject* mesh, const QMatrix4x
 
     // prepareDrawGL() 之后不再存在普通参数验证的 Early Return，
     // 因此成功开始的 External GPU Read Transaction 一定会和 finishDrawGL() 成对。
-    if (!mesh->prepareDrawGL(gl))
+    if (!geometry->prepareDrawGL(gl))
         return false;
 
     if (depthTest)
@@ -331,12 +440,12 @@ bool Renderer::drawVertexColorMesh(const RenderableObject* mesh, const QMatrix4x
     gl->glUniformMatrix4fv(m_colorViewLocation, 1, GL_FALSE, m_viewMatrix.constData());
     gl->glUniformMatrix4fv(m_colorProjectionLocation, 1, GL_FALSE, m_projectionMatrix.constData());
 
-    gl->glBindVertexArray(mesh->vao());
-    gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
     gl->glBindVertexArray(0);
 
-    // External GPU Mesh 可以在 Draw 提交后发布 Renderer 已完成读取的 GPU Fence。
-    mesh->finishDrawGL(gl);
+    // External GPU Geometry 可以在 Draw 提交后发布 Renderer 已完成读取的 GPU Fence。
+    geometry->finishDrawGL(gl);
 
     if (!depthTest)
         gl->glEnable(GL_DEPTH_TEST);
@@ -344,41 +453,49 @@ bool Renderer::drawVertexColorMesh(const RenderableObject* mesh, const QMatrix4x
     return true;
 }
 
-bool Renderer::drawLitMesh(const RenderableObject* mesh, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
+bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
 {
     if (!m_frameActive)
     {
-        qWarning() << "Renderer drawLitMesh failed: beginFrame() has not been called.";
+        qWarning() << "Renderer drawLitGeometry failed: beginFrame() has not been called.";
         return false;
     }
 
-    if (mesh == 0 || material == 0 || resourceManager == 0 || lightManager == 0)
+    if (geometry == 0 || material == 0 || resourceManager == 0 || lightManager == 0)
     {
-        qWarning() << "Renderer drawLitMesh failed: invalid argument.";
+        qWarning() << "Renderer drawLitGeometry failed: invalid argument.";
         return false;
     }
 
-    if (!mesh->objectInitialized() || mesh->vao() == 0)
+    if (!geometry->isInitialized() || geometry->vao() == 0)
     {
-        qWarning() << "Renderer drawLitMesh failed: mesh GPU resource is not initialized:" << mesh->objectName();
+        qWarning() << "Renderer drawLitGeometry failed: geometry GPU resource is not initialized:" << geometry->name();
         return false;
     }
 
-    if (mesh->indexCount() <= 0)
+    if (geometry->indexCount() <= 0)
     {
-        qWarning() << "Renderer drawLitMesh failed: mesh contains no indices:" << mesh->objectName();
+        qWarning() << "Renderer drawLitGeometry failed: geometry contains no indices:" << geometry->name();
         return false;
     }
 
-    if (material->type() != MaterialTypeLit)
+    const bool useVertexColor = material->type() == MaterialTypeLitVertexColor;
+
+    if (material->type() != MaterialTypeLit && !useVertexColor)
     {
-        qWarning() << "Renderer drawLitMesh failed: material is not Lit:" << material->name();
+        qWarning() << "Renderer drawLitGeometry failed: Lit or LitVertexColor material is required:" << material->name();
         return false;
     }
 
-    if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3) || !mesh->hasAttribute(2, 2))
+    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
     {
-        qWarning() << "Renderer drawLitMesh failed: position + normal + uv layout is required:" << mesh->objectName();
+        qWarning() << "Renderer drawLitGeometry failed: position + normal layout is required:" << geometry->name();
+        return false;
+    }
+
+    if (useVertexColor && !geometry->hasAttribute(3, 4))
+    {
+        qWarning() << "Renderer drawLitGeometry failed: LitVertexColor requires color4 at attribute location 3:" << geometry->name();
         return false;
     }
 
@@ -392,54 +509,69 @@ bool Renderer::drawLitMesh(const RenderableObject* mesh, const Material* materia
     const QVector3D& specularColor = material->specularColor();
     const QVector3D& ambientColor = lightManager->ambientColor();
 
-    QVector3D lightDirection(0.0f, -1.0f, 0.0f);
-    QVector3D lightColor(1.0f, 1.0f, 1.0f);
-    float lightIntensity = 0.0f;
+    std::vector<const Light*> enabledLights;
+    lightManager->enabledLights(enabledLights);
 
-    const Light* directionalLight = lightManager->firstEnabledDirectionalLight();
-
-    if (directionalLight != 0)
+    if (enabledLights.size() > static_cast<std::size_t>(MaxLights) && !m_lightLimitWarningIssued)
     {
-        lightDirection = directionalLight->direction();
-        lightColor = directionalLight->color();
-        lightIntensity = directionalLight->intensity();
+        qWarning() << "Renderer drawLitGeometry: enabled light count exceeds MaxLights; extra lights are ignored:"
+                   << "Enabled=" << static_cast<int>(enabledLights.size())
+                   << "MaxLights=" << MaxLights;
+        m_lightLimitWarningIssued = true;
     }
 
-    bool useTexture = false;
-    const TextureResource* texture = 0;
+    const int lightCount = qMin(static_cast<int>(enabledLights.size()), MaxLights);
 
-    // 所有可能失败的 Material / Texture 验证都必须发生在 prepareDrawGL() 之前。
-    // 否则 External GPU Read Transaction 已开始后发生 Early Return，会遗漏对应的 finishDrawGL()。
-    if (material->hasDiffuseTexture())
+    GLint lightTypes[MaxLights] = { 0 };
+    GLfloat lightPositions[MaxLights * 3] = { 0.0f };
+    GLfloat lightDirections[MaxLights * 3] = { 0.0f };
+    GLfloat lightColors[MaxLights * 3] = { 0.0f };
+    GLfloat lightIntensities[MaxLights] = { 0.0f };
+    GLfloat lightRanges[MaxLights] = { 1.0f };
+    GLfloat lightInnerConeCos[MaxLights] = { 1.0f };
+    GLfloat lightOuterConeCos[MaxLights] = { 1.0f };
+
+    // Degree -> Radian 固定比例；Spot Angle 在 Light 中使用 Degree，Shader 只接收 Cosine。
+    const float degreesToRadians = 0.017453292519943295f;
+
+    for (int lightIndex = 0; lightIndex < lightCount; ++lightIndex)
     {
-        const Resource* resource = resourceManager->get(material->diffuseTextureId());
+        const Light* light = enabledLights[static_cast<std::size_t>(lightIndex)];
 
-        if (resource == 0)
-        {
-            qWarning() << "Renderer drawLitMesh failed: diffuse texture resource does not exist:" << material->diffuseTextureId();
-            return false;
-        }
+        if (light == 0)
+            continue;
 
-        if (resource->type() != ResourceTypeTexture)
-        {
-            qWarning() << "Renderer drawLitMesh failed: diffuse texture ResourceId does not reference TextureResource:" << material->diffuseTextureId();
-            return false;
-        }
+        const QVector3D& position = light->position();
+        const QVector3D& direction = light->direction();
+        const QVector3D& color = light->color();
+        const int vectorOffset = lightIndex * 3;
 
-        texture = static_cast<const TextureResource*>(resource);
+        lightTypes[lightIndex] = static_cast<GLint>(light->type());
 
-        if (!texture->isInitialized() || texture->textureId() == 0)
-        {
-            qWarning() << "Renderer drawLitMesh failed: diffuse texture GPU resource is not initialized:" << texture->name();
-            return false;
-        }
+        lightPositions[vectorOffset + 0] = position.x();
+        lightPositions[vectorOffset + 1] = position.y();
+        lightPositions[vectorOffset + 2] = position.z();
 
-        useTexture = true;
+        lightDirections[vectorOffset + 0] = direction.x();
+        lightDirections[vectorOffset + 1] = direction.y();
+        lightDirections[vectorOffset + 2] = direction.z();
+
+        lightColors[vectorOffset + 0] = color.x();
+        lightColors[vectorOffset + 1] = color.y();
+        lightColors[vectorOffset + 2] = color.z();
+
+        lightIntensities[lightIndex] = light->intensity();
+        lightRanges[lightIndex] = light->range();
+        lightInnerConeCos[lightIndex] = qCos(light->innerConeAngle() * degreesToRadians);
+        lightOuterConeCos[lightIndex] = qCos(light->outerConeAngle() * degreesToRadians);
     }
+
+    // 当前 Renderer 不启用 Texture 路径；ResourceManager 参数保留以维持既有绘制接口稳定。
+    (void)resourceManager;
 
     // 从这里开始不再存在普通验证 Early Return。
-    // External GPU Mesh 可以在这里等待另一个共享 Context 完成对 VBO / EBO 的写入。
-    if (!mesh->prepareDrawGL(gl))
+    // External GPU Geometry 可以在这里等待另一个共享 Context 完成对 VBO / EBO 的写入。
+    if (!geometry->prepareDrawGL(gl))
         return false;
 
     m_litProgram.bind(gl);
@@ -456,33 +588,34 @@ bool Renderer::drawLitMesh(const RenderableObject* mesh, const Material* materia
 
     gl->glUniform3f(m_litAmbientColorLocation, ambientColor.x(), ambientColor.y(), ambientColor.z());
     gl->glUniform1f(m_litAmbientIntensityLocation, lightManager->ambientIntensity());
-    gl->glUniform3f(m_litLightDirectionLocation, lightDirection.x(), lightDirection.y(), lightDirection.z());
-    gl->glUniform3f(m_litLightColorLocation, lightColor.x(), lightColor.y(), lightColor.z());
-    gl->glUniform1f(m_litLightIntensityLocation, lightIntensity);
 
-    gl->glUniform1i(m_litUseTextureLocation, useTexture ? 1 : 0);
-    gl->glUniform1i(m_litTextureLocation, 0);
+    gl->glUniform1i(m_litLightCountLocation, lightCount);
 
-    if (useTexture)
+    if (lightCount > 0)
     {
-        gl->glActiveTexture(GL_TEXTURE0);
-        gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
+        gl->glUniform1iv(m_litLightTypeLocation, lightCount, lightTypes);
+        gl->glUniform3fv(m_litLightPositionLocation, lightCount, lightPositions);
+        gl->glUniform3fv(m_litLightDirectionLocation, lightCount, lightDirections);
+        gl->glUniform3fv(m_litLightColorLocation, lightCount, lightColors);
+        gl->glUniform1fv(m_litLightIntensityLocation, lightCount, lightIntensities);
+        gl->glUniform1fv(m_litLightRangeLocation, lightCount, lightRanges);
+        gl->glUniform1fv(m_litLightInnerConeCosLocation, lightCount, lightInnerConeCos);
+        gl->glUniform1fv(m_litLightOuterConeCosLocation, lightCount, lightOuterConeCos);
     }
+
+    gl->glUniform1i(m_litUseVertexColorLocation, useVertexColor ? 1 : 0);
 
     if (depthTest)
         gl->glEnable(GL_DEPTH_TEST);
     else
         gl->glDisable(GL_DEPTH_TEST);
 
-    gl->glBindVertexArray(mesh->vao());
-    gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
     gl->glBindVertexArray(0);
 
     // Draw 已进入当前 Renderer Command Stream，可以结束 External GPU Read Transaction。
-    mesh->finishDrawGL(gl);
-
-    if (useTexture)
-        gl->glBindTexture(GL_TEXTURE_2D, 0);
+    geometry->finishDrawGL(gl);
 
     if (!depthTest)
         gl->glEnable(GL_DEPTH_TEST);
@@ -507,28 +640,90 @@ bool Renderer::drawItem(const RenderItem* item, const ResourceManager* resourceM
     if (!item->isVisible())
         return true;
 
-    const RenderableObject* mesh = item->mesh();
+    // 空 Item 是合法的用户对象状态，例如动态仿真中所有 RenderPart 暂时被移除。
+    if (item->partCount() == 0)
+        return true;
+
     const Material* material = item->material();
 
-    if (mesh == 0 || material == 0)
+    if (material == 0)
     {
-        qWarning() << "Renderer drawItem failed: item requires Mesh and Material:" << item->name();
+        // 只有实际存在可绘制 Geometry 时才要求 Material，允许 Adapter 分阶段建立空 Part。
+        bool hasDrawablePart = false;
+
+        for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
+        {
+            const RenderPart* currentPart = item->partAt(partIndex);
+
+            if (currentPart != 0 && currentPart->geometry() != 0)
+            {
+                hasDrawablePart = true;
+                break;
+            }
+        }
+
+        if (!hasDrawablePart)
+            return true;
+
+        qWarning() << "Renderer drawItem failed: drawable Item requires Material:" << item->name();
         return false;
     }
 
     const QMatrix4x4 model = item->transform().matrix();
 
-    switch (material->type())
+    for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
     {
-    case MaterialTypeVertexColor:
-        return drawVertexColorMesh(mesh, model, item->depthTestEnabled());
+        const RenderPart* currentPart = item->partAt(partIndex);
 
-    case MaterialTypeLit:
-        return drawLitMesh(mesh, material, resourceManager, lightManager, model, item->depthTestEnabled());
+        if (currentPart == 0 || currentPart->geometry() == 0)
+            continue;
+
+        const Geometry* geometry = currentPart->geometry();
+        bool drawSucceeded = false;
+
+        // Polygon Display Mode 只对 Triangle Geometry 有额外意义。
+        // Lines / LineStrip 本身已经是线图元，因此继续按当前 Item Material 正常绘制。
+        if (geometry->renderType() != Triangles)
+        {
+            drawSucceeded = drawMaterialGeometry(geometry, material, resourceManager, lightManager, model, item->depthTestEnabled());
+        }
+        else
+        {
+            switch (item->displayMode())
+            {
+            case RenderItemDisplayShaded:
+                drawSucceeded = drawMaterialGeometry(geometry, material, resourceManager, lightManager, model, item->depthTestEnabled());
+                break;
+
+            case RenderItemDisplayWireframe:
+                drawSucceeded = drawWireGeometry(geometry, model, item->edgeColor(), item->depthTestEnabled(), false);
+                break;
+
+            case RenderItemDisplayShadedWithEdges:
+                drawSucceeded = drawMaterialGeometry(geometry, material, resourceManager, lightManager, model, item->depthTestEnabled());
+
+                if (drawSucceeded)
+                    drawSucceeded = drawWireGeometry(geometry, model, item->edgeColor(), item->depthTestEnabled(), true);
+
+                break;
+
+            default:
+                qWarning() << "Renderer drawItem failed: unsupported DisplayMode:" << item->name();
+                return false;
+            }
+        }
+
+        if (!drawSucceeded)
+        {
+            qWarning() << "Renderer drawItem failed while drawing RenderPart:"
+                       << "Item=" << item->name()
+                       << "PartId=" << static_cast<qulonglong>(currentPart->id())
+                       << "Geometry=" << geometry->name();
+            return false;
+        }
     }
 
-    qWarning() << "Renderer drawItem failed: unsupported Material type:" << item->name();
-    return false;
+    return true;
 }
 
 bool Renderer::drawScene(const Scene* scene, const ResourceManager* resourceManager, const LightManager* lightManager)
@@ -559,7 +754,7 @@ bool Renderer::drawScene(const Scene* scene, const ResourceManager* resourceMana
     return true;
 }
 
-bool Renderer::drawViewNavigation(const RenderableObject* mesh, const Camera* camera)
+bool Renderer::drawViewNavigation(const Geometry* geometry, const Camera* camera)
 {
     if (!m_frameActive)
     {
@@ -567,21 +762,21 @@ bool Renderer::drawViewNavigation(const RenderableObject* mesh, const Camera* ca
         return false;
     }
 
-    if (mesh == 0 || camera == 0)
+    if (geometry == 0 || camera == 0)
     {
         qWarning() << "Renderer drawViewNavigation failed: invalid argument.";
         return false;
     }
 
-    if (!mesh->objectInitialized() || mesh->vao() == 0)
+    if (!geometry->isInitialized() || geometry->vao() == 0)
     {
-        qWarning() << "Renderer drawViewNavigation failed: mesh GPU resource is not initialized:" << mesh->objectName();
+        qWarning() << "Renderer drawViewNavigation failed: geometry GPU resource is not initialized:" << geometry->name();
         return false;
     }
 
-    if (!mesh->hasAttribute(0, 3) || !mesh->hasAttribute(1, 3))
+    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
     {
-        qWarning() << "Renderer drawViewNavigation failed: position + color layout is required:" << mesh->objectName();
+        qWarning() << "Renderer drawViewNavigation failed: position + color layout is required:" << geometry->name();
         return false;
     }
 
@@ -597,7 +792,7 @@ bool Renderer::drawViewNavigation(const RenderableObject* mesh, const Camera* ca
     if (gl == 0)
         return false;
 
-    if (!mesh->prepareDrawGL(gl))
+    if (!geometry->prepareDrawGL(gl))
         return false;
 
     const float gizmoCameraDistance = 3.0f; // Gizmo Camera 只使用主 Camera 朝向，固定距离避免受 Zoom 影响。
@@ -623,11 +818,11 @@ bool Renderer::drawViewNavigation(const RenderableObject* mesh, const Camera* ca
     gl->glUniformMatrix4fv(m_colorViewLocation, 1, GL_FALSE, gizmoView.constData());
     gl->glUniformMatrix4fv(m_colorProjectionLocation, 1, GL_FALSE, gizmoProjection.constData());
 
-    gl->glBindVertexArray(mesh->vao());
-    gl->glDrawElements(primitiveMode(mesh), mesh->indexCount(), mesh->indexType(), 0);
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
     gl->glBindVertexArray(0);
 
-    mesh->finishDrawGL(gl);
+    geometry->finishDrawGL(gl);
 
     gl->glViewport(0, 0, m_viewportWidth, m_viewportHeight);
     gl->glEnable(GL_DEPTH_TEST);
@@ -646,7 +841,6 @@ void Renderer::endFrame()
         return;
 
     gl->glBindVertexArray(0);
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
     ShaderProgram::unbind(gl);
 
     m_frameActive = false;
@@ -654,9 +848,115 @@ void Renderer::endFrame()
 
 /// 内部辅助
 
-GLenum Renderer::primitiveMode(const RenderableObject* mesh) const
+bool Renderer::drawMaterialGeometry(const Geometry* geometry, const Material* material, const ResourceManager* resourceManager, const LightManager* lightManager, const QMatrix4x4& model, bool depthTest)
 {
-    switch (mesh->renderType())
+    switch (material->type())
+    {
+    case MaterialTypeVertexColor:
+        return drawVertexColorGeometry(geometry, model, depthTest);
+
+    case MaterialTypeLit:
+    case MaterialTypeLitVertexColor:
+        return drawLitGeometry(geometry, material, resourceManager, lightManager, model, depthTest);
+    }
+
+    qWarning() << "Renderer drawMaterialGeometry failed: unsupported Material type:" << material->name();
+    return false;
+}
+
+bool Renderer::drawWireGeometry(const Geometry* geometry, const QMatrix4x4& model, const QVector4D& color, bool depthTest, bool overlay)
+{
+    if (!m_frameActive)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: beginFrame() has not been called.";
+        return false;
+    }
+
+    if (geometry == 0)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: geometry is null.";
+        return false;
+    }
+
+    if (geometry->renderType() != Triangles)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: Triangle Geometry is required:" << geometry->name();
+        return false;
+    }
+
+    if (!geometry->isInitialized() || geometry->vao() == 0)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: geometry GPU resource is not initialized:" << geometry->name();
+        return false;
+    }
+
+    if (geometry->indexCount() <= 0)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: geometry contains no indices:" << geometry->name();
+        return false;
+    }
+
+    if (!geometry->hasAttribute(0, 3))
+    {
+        qWarning() << "Renderer drawWireGeometry failed: position layout is required:" << geometry->name();
+        return false;
+    }
+
+    QOpenGLFunctions_3_3_Core* gl = m_context->gl();
+
+    if (gl == 0)
+        return false;
+
+    // 所有验证都发生在 prepareDrawGL() 之前，保证 External GPU Read Transaction 必然成对结束。
+    if (!geometry->prepareDrawGL(gl))
+        return false;
+
+    if (depthTest)
+        gl->glEnable(GL_DEPTH_TEST);
+    else
+        gl->glDisable(GL_DEPTH_TEST);
+
+    // Overlay 线框需要通过已经写入的 Fill Depth。
+    // GL_LEQUAL 允许同一 Triangle Edge 在相同深度覆盖表面；轻微负 Polygon Offset 用于减少实现差异导致的 Z-Fighting。
+    if (overlay && depthTest)
+    {
+        gl->glDepthFunc(GL_LEQUAL);
+        gl->glEnable(GL_POLYGON_OFFSET_LINE);
+        gl->glPolygonOffset(-1.0f, -1.0f);
+    }
+
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    m_solidColorProgram.bind(gl);
+    gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, model.constData());
+    gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, m_viewMatrix.constData());
+    gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, m_projectionMatrix.constData());
+    gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
+
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(GL_TRIANGLES, geometry->indexCount(), geometry->indexType(), 0);
+    gl->glBindVertexArray(0);
+
+    // Draw 已进入当前 Renderer Command Stream，可以结束 External GPU Read Transaction。
+    geometry->finishDrawGL(gl);
+
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    if (overlay && depthTest)
+    {
+        gl->glDisable(GL_POLYGON_OFFSET_LINE);
+        gl->glDepthFunc(GL_LESS);
+    }
+
+    if (!depthTest)
+        gl->glEnable(GL_DEPTH_TEST);
+
+    return true;
+}
+
+GLenum Renderer::primitiveMode(const Geometry* geometry) const
+{
+    switch (geometry->renderType())
     {
     case Triangles:
         return GL_TRIANGLES;

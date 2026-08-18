@@ -77,12 +77,12 @@ private:
 
 private:
     const ModelingMesh* m_mesh;                         // 不拥有 ModelingMesh Source。
-    BufferSet m_buffers;                                // 当前 ExternalGpuMeshResource 正在观察的 GPU Buffer Set。
+    BufferSet m_buffers;                                // 当前 ExternalGpuGeometry 正在观察的 GPU Buffer Set。
     std::vector<RetiredBufferSet> m_retiredBufferSets;  // 等待 Renderer Structure Acknowledgment 后回收的旧 Buffer Set。
     int m_indexCount;                                   // 当前 GPU EBO 对应的 Index Count。
     unsigned long long m_sourceStructureRevision;       // GPU Storage 当前已经同步的 ModelingMesh Structure Revision。
     unsigned long long m_sourceContentRevision;         // GPU Storage 当前已经同步的 ModelingMesh Content Revision。
-    unsigned long long m_structureRevision;             // ExternalGpuMeshResource 实际需要观察的 GPU View Structure Revision。
+    unsigned long long m_structureRevision;             // ExternalGpuGeometry 实际需要观察的 GPU View Structure Revision。
 };
 
 #endif // MODELINGGPUMESH_H

@@ -1,10 +1,11 @@
 #ifndef LIGHTMANAGER_H
 #define LIGHTMANAGER_H
 
-#include "Light/Light.h"
+#include "Light.h"
 
 #include <cstddef>
 #include <map>
+#include <vector>
 
 /// 场景灯光管理器。
 /// 负责 LightId、灯光所有权以及场景级环境光参数。
@@ -18,7 +19,8 @@ public:
     LightId add(Light* light);             // 注册灯光并取得所有权，成功后返回分配的 LightId。
     Light* get(LightId id);                // 获取指定灯光，不存在时返回 0。
     const Light* get(LightId id) const;    // 获取指定只读灯光，不存在时返回 0。
-    const Light* firstEnabledDirectionalLight() const; // 获取第一个启用的方向光；不存在时返回 0。
+    const Light* firstEnabledDirectionalLight() const; // 兼容查询：获取第一个启用的方向光；Renderer 多光源路径不依赖该接口。
+    void enabledLights(std::vector<const Light*>& lights) const; // 返回当前全部启用灯光的借用指针，顺序按 LightId 递增。
     bool contains(LightId id) const;
     std::size_t count() const;
     bool remove(LightId id);               // 删除指定灯光。

@@ -137,7 +137,7 @@ bool ModelingGpuMesh::syncGL(QOpenGLFunctions_3_3_Core* gl)
         m_sourceContentRevision = currentContentRevision;
 
         // 当前 GPU Buffer ID 和 Vertex Layout 始终不变。
-        // 因此只有 Index Count 变化时，ExternalGpuMeshResource 才需要重新获取 GPU View 并重配 Draw State。
+        // 因此只有 Index Count 变化时，ExternalGpuGeometry 才需要重新获取 GPU View 并重配 Draw State。
         const bool gpuViewStructureChanged = previousIndexCount != m_indexCount;
 
         if (gpuViewStructureChanged)
@@ -250,7 +250,7 @@ bool ModelingGpuMesh::replaceBuffersGL(QOpenGLFunctions_3_3_Core* gl)
     m_buffers = newBuffers;
     m_indexCount = static_cast<int>(m_mesh->indices().size());
 
-    // Buffer ID 已改变，即使 Layout 和 Index Count 完全相同，也必须通知 ExternalGpuMeshResource 重新配置 VAO。
+    // Buffer ID 已改变，即使 Layout 和 Index Count 完全相同，也必须通知 ExternalGpuGeometry 重新配置 VAO。
     ++m_structureRevision;
 
     RetiredBufferSet retiredBuffers;
@@ -432,7 +432,7 @@ bool ModelingGpuMesh::uploadFullToBufferSetGL(QOpenGLFunctions_3_3_Core* gl, con
     }
 
     // GL_COPY_WRITE_BUFFER 不属于 VAO State。
-    // 外部 GPU Storage 使用该通用 Buffer Target 更新数据，避免修改 Renderer 或 ExternalGpuMeshResource 的 VAO / EBO Binding。
+    // 外部 GPU Storage 使用该通用 Buffer Target 更新数据，避免修改 Renderer 或 ExternalGpuGeometry 的 VAO / EBO Binding。
     gl->glBindBuffer(GL_COPY_WRITE_BUFFER, buffers.positionBuffer);
     gl->glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(m_mesh->positions().size() * sizeof(ModelingPoint)), &m_mesh->positions()[0], GL_DYNAMIC_DRAW);
 

@@ -1,6 +1,7 @@
 #include "Camera.h"
 
 #include <QDebug>
+#include <QMatrix3x3>
 #include <QVector4D>
 #include <QtMath>
 
@@ -24,6 +25,7 @@ Camera::Camera(const QString& name)
     , m_position(0.0f, 0.0f, 5.0f)
     , m_target(0.0f, 0.0f, 0.0f)
     , m_up(0.0f, 1.0f, 0.0f)
+    , m_orientation(1.0f, 0.0f, 0.0f, 0.0f) // 默认 Local Forward(-Z) 正对世界 -Z，Local Up(+Y) 对齐世界 +Y。
     , m_fieldOfView(45.0f)           // 常用透视垂直视场角，兼顾视野范围和透视变形。
     , m_orthographicHeight(10.0f)    // 默认正交视图从 -5 到 +5，共显示 10 个世界坐标单位。
     , m_nearPlane(0.1f)              // Near 必须大于 0，0.1 适合作为当前普通场景默认值。
@@ -65,19 +67,24 @@ const QVector3D& Camera::up() const
     return m_up;
 }
 
+const QQuaternion& Camera::orientation() const
+{
+    return m_orientation;
+}
+
 QVector3D Camera::forward() const
 {
-    return (m_target - m_position).normalized();
+    return m_orientation.rotatedVector(QVector3D(0.0f, 0.0f, -1.0f)).normalized();
 }
 
 QVector3D Camera::right() const
 {
-    return QVector3D::crossProduct(forward(), m_up).normalized();
+    return m_orientation.rotatedVector(QVector3D(1.0f, 0.0f, 0.0f)).normalized();
 }
 
 QVector3D Camera::viewUp() const
 {
-    return QVector3D::crossProduct(right(), forward()).normalized();
+    return m_orientation.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f)).normalized();
 }
 
 float Camera::distanceToTarget() const
@@ -104,15 +111,39 @@ bool Camera::setView(const QVector3D& position, const QVector3D& target, const Q
         return false;
     }
 
-    if (QVector3D::crossProduct(viewDirection.normalized(), up.normalized()).lengthSquared() <= directionEpsilon)
+    const QVector3D normalizedForward = viewDirection.normalized();
+    QVector3D normalizedRight = QVector3D::crossProduct(normalizedForward, up.normalized());
+
+    if (normalizedRight.lengthSquared() <= directionEpsilon)
     {
         qWarning() << "Camera setView failed: up vector cannot be parallel to view direction:" << m_name;
         return false;
     }
 
+    normalizedRight.normalize();
+    const QVector3D normalizedUp = QVector3D::crossProduct(normalizedRight, normalizedForward).normalized();
+    const QVector3D normalizedBackward = -normalizedForward;
+
+    // Camera Local Basis:
+    // +X = Right, +Y = Up, +Z = Backward，因此 Local Forward 固定为 -Z。
+    // 将三个世界空间基础轴作为旋转矩阵列向量，再转换为四元数保存完整姿态。
+    QMatrix3x3 rotationMatrix;
+    rotationMatrix(0, 0) = normalizedRight.x();
+    rotationMatrix(1, 0) = normalizedRight.y();
+    rotationMatrix(2, 0) = normalizedRight.z();
+
+    rotationMatrix(0, 1) = normalizedUp.x();
+    rotationMatrix(1, 1) = normalizedUp.y();
+    rotationMatrix(2, 1) = normalizedUp.z();
+
+    rotationMatrix(0, 2) = normalizedBackward.x();
+    rotationMatrix(1, 2) = normalizedBackward.y();
+    rotationMatrix(2, 2) = normalizedBackward.z();
+
     m_position = position;
     m_target = target;
-    m_up = up.normalized();
+    m_orientation = QQuaternion::fromRotationMatrix(rotationMatrix).normalized();
+    m_up = m_orientation.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f)).normalized();
     return true;
 }
 

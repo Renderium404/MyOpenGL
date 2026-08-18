@@ -1,9 +1,9 @@
-#include "ViewNavigationResource.h"
+#include "ViewNavigationGeometry.h"
 
 #include <QDebug>
 
-ViewNavigationResource::ViewNavigationResource(const QString& name)
-    : MeshResource(name, ResourceTypeViewNavigation, ResourceUpdateStatic, Lines)
+ViewNavigationGeometry::ViewNavigationGeometry(const QString& name)
+    : BufferGeometry(name, ResourceUpdateStatic, Lines)
     , m_axisLength(1.0f) // 导航器使用单位局部几何，最终屏幕尺寸由 Renderer 控制。
 {
     rebuildGeometry();
@@ -11,16 +11,16 @@ ViewNavigationResource::ViewNavigationResource(const QString& name)
 
 /// 几何参数
 
-float ViewNavigationResource::axisLength() const
+float ViewNavigationGeometry::axisLength() const
 {
     return m_axisLength;
 }
 
-bool ViewNavigationResource::setAxisLength(float length)
+bool ViewNavigationGeometry::setAxisLength(float length)
 {
     if (length <= 0.0f)
     {
-        qWarning() << "ViewNavigationResource setAxisLength failed: length must be greater than zero:" << name();
+        qWarning() << "ViewNavigationGeometry setAxisLength failed: length must be greater than zero:" << name();
         return false;
     }
 
@@ -34,17 +34,17 @@ bool ViewNavigationResource::setAxisLength(float length)
 
 /// 几何生成
 
-void ViewNavigationResource::rebuildGeometry()
+void ViewNavigationGeometry::rebuildGeometry()
 {
-    std::vector<MeshVertexAttribute> attributes;
+    std::vector<GeometryVertexAttribute> attributes;
 
-    MeshVertexAttribute positionAttribute;
+    GeometryVertexAttribute positionAttribute;
     positionAttribute.location = 0;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
-    MeshVertexAttribute colorAttribute;
+    GeometryVertexAttribute colorAttribute;
     colorAttribute.location = 1;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;

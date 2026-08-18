@@ -1,8 +1,8 @@
 #ifndef CAMERAMANAGER_H
 #define CAMERAMANAGER_H
 
-#include "Camera/Camera.h"
-#include "Scene/AxisAlignedBoundingBox.h"
+#include "Camera.h"
+#include "MyOpenGL/Scene/AxisAlignedBoundingBox.h"
 
 #include <cstddef>
 #include <map>
@@ -44,7 +44,7 @@ public:
 
     /// 视图导航
     bool setViewDirection(const QVector3D& forward, const QVector3D& up); // 围绕 View Bounds Center 设置观察方向，保持当前距离。
-    bool orbit(float yawDegrees, float pitchDegrees);                     // 围绕 View Bounds Center 旋转观察方向，角度单位为度。
+    bool orbit(float yawDegrees, float pitchDegrees);                     // 使用当前屏幕 Up / Right 构造增量四元数，全角度围绕 View Bounds Center 旋转。
     bool pan(float rightDistance, float upDistance);                      // 沿当前视图 Right / Up 平移整个 View Bounds 和 Camera。
     bool zoom(float factor);                                              // factor > 1 放大，0 < factor < 1 缩小；View Bounds 保持不变。
 

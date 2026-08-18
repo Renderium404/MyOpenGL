@@ -1,11 +1,11 @@
-#include "ExternalMeshResource.h"
+#include "ExternalGeometry.h"
 
 #include <QDebug>
 
 #include <algorithm>
 
-ExternalMeshResource::ExternalMeshResource(const QString& name, ResourceUpdatePolicy updatePolicy)
-    : Resource(name, ResourceTypeMesh, updatePolicy)
+ExternalGeometry::ExternalGeometry(const QString& name, ResourceUpdatePolicy updatePolicy)
+    : Geometry(name, updatePolicy)
     , m_source(0)
     , m_structureRevision(0)
     , m_contentRevision(0)
@@ -23,25 +23,25 @@ ExternalMeshResource::ExternalMeshResource(const QString& name, ResourceUpdatePo
     resetSyncStatistics();
 }
 
-ExternalMeshResource::~ExternalMeshResource()
+ExternalGeometry::~ExternalGeometry()
 {
 }
 
 /// 自动数据源模式
 
-bool ExternalMeshResource::setDataSource(const ExternalMeshDataSource* source)
+bool ExternalGeometry::setDataSource(const ExternalGeometryDataSource* source)
 {
     if (source == 0)
     {
-        qWarning() << "ExternalMeshResource setDataSource failed: source is null:" << name();
+        qWarning() << "ExternalGeometry setDataSource failed: source is null:" << name();
         return false;
     }
 
-    ExternalMeshDataView view;
+    ExternalGeometryDataView view;
 
     if (!source->dataView(view))
     {
-        qWarning() << "ExternalMeshResource setDataSource failed: source cannot provide DataView:" << name();
+        qWarning() << "ExternalGeometry setDataSource failed: source cannot provide DataView:" << name();
         return false;
     }
 
@@ -58,14 +58,14 @@ bool ExternalMeshResource::setDataSource(const ExternalMeshDataSource* source)
     return true;
 }
 
-const ExternalMeshDataSource* ExternalMeshResource::dataSource() const
+const ExternalGeometryDataSource* ExternalGeometry::dataSource() const
 {
     return m_source;
 }
 
 /// 手动数据视图模式
 
-bool ExternalMeshResource::setDataView(const ExternalMeshDataView& view)
+bool ExternalGeometry::setDataView(const ExternalGeometryDataView& view)
 {
     if (!validateDataView(view))
         return false;
@@ -80,22 +80,22 @@ bool ExternalMeshResource::setDataView(const ExternalMeshDataView& view)
     return true;
 }
 
-const ExternalMeshDataView& ExternalMeshResource::dataView() const
+const ExternalGeometryDataView& ExternalGeometry::dataView() const
 {
     return m_view;
 }
 
 /// 手动变化通知
 
-bool ExternalMeshResource::markVertexRangeDirty(int bufferIndex, std::size_t byteOffset, std::size_t byteSize)
+bool ExternalGeometry::markVertexRangeDirty(int bufferIndex, std::size_t byteOffset, std::size_t byteSize)
 {
     if (m_source != 0)
     {
-        qWarning() << "ExternalMeshResource markVertexRangeDirty failed: automatic DataSource mode is active:" << name();
+        qWarning() << "ExternalGeometry markVertexRangeDirty failed: automatic DataSource mode is active:" << name();
         return false;
     }
 
-    ExternalMeshDirtyRange range;
+    ExternalGeometryDirtyRange range;
     range.bufferIndex = bufferIndex;
     range.byteOffset = byteOffset;
     range.byteSize = byteSize;
@@ -108,16 +108,16 @@ bool ExternalMeshResource::markVertexRangeDirty(int bufferIndex, std::size_t byt
     return true;
 }
 
-bool ExternalMeshResource::markIndexRangeDirty(std::size_t byteOffset, std::size_t byteSize)
+bool ExternalGeometry::markIndexRangeDirty(std::size_t byteOffset, std::size_t byteSize)
 {
     if (m_source != 0)
     {
-        qWarning() << "ExternalMeshResource markIndexRangeDirty failed: automatic DataSource mode is active:" << name();
+        qWarning() << "ExternalGeometry markIndexRangeDirty failed: automatic DataSource mode is active:" << name();
         return false;
     }
 
-    ExternalMeshDirtyRange range;
-    range.bufferIndex = ExternalMeshIndexBuffer;
+    ExternalGeometryDirtyRange range;
+    range.bufferIndex = ExternalGeometryIndexBuffer;
     range.byteOffset = byteOffset;
     range.byteSize = byteSize;
 
@@ -129,7 +129,7 @@ bool ExternalMeshResource::markIndexRangeDirty(std::size_t byteOffset, std::size
     return true;
 }
 
-void ExternalMeshResource::markAllDataDirty()
+void ExternalGeometry::markAllDataDirty()
 {
     m_dirtyRanges.clear();
     markFullDirty();
@@ -137,24 +137,24 @@ void ExternalMeshResource::markAllDataDirty()
 
 /// Revision 调试状态
 
-ExternalMeshRevision ExternalMeshResource::synchronizedStructureRevision() const
+ExternalGeometryRevision ExternalGeometry::synchronizedStructureRevision() const
 {
     return m_structureRevision;
 }
 
-ExternalMeshRevision ExternalMeshResource::synchronizedContentRevision() const
+ExternalGeometryRevision ExternalGeometry::synchronizedContentRevision() const
 {
     return m_contentRevision;
 }
 
 /// GPU 同步统计
 
-const ExternalMeshSyncStatistics& ExternalMeshResource::syncStatistics() const
+const ExternalGeometrySyncStatistics& ExternalGeometry::syncStatistics() const
 {
     return m_syncStatistics;
 }
 
-void ExternalMeshResource::resetSyncStatistics()
+void ExternalGeometry::resetSyncStatistics()
 {
     m_syncStatistics.fullSyncCount = 0;
     m_syncStatistics.partialSyncCount = 0;
@@ -162,42 +162,32 @@ void ExternalMeshResource::resetSyncStatistics()
     m_syncStatistics.indexUploadCalls = 0;
     m_syncStatistics.totalUploadedBytes = 0;
     m_syncStatistics.lastUploadedBytes = 0;
-    m_syncStatistics.lastSyncType = ExternalMeshSyncNone;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncNone;
 }
 
 /// Renderer 接口
 
-const QString& ExternalMeshResource::objectName() const
-{
-    return name();
-}
-
-bool ExternalMeshResource::objectInitialized() const
-{
-    return isInitialized();
-}
-
-GLuint ExternalMeshResource::vao() const
+GLuint ExternalGeometry::vao() const
 {
     return m_vao;
 }
 
-int ExternalMeshResource::indexCount() const
+int ExternalGeometry::indexCount() const
 {
     return m_view.indices.indexCount;
 }
 
-GLenum ExternalMeshResource::indexType() const
+GLenum ExternalGeometry::indexType() const
 {
     return m_view.indices.indexType;
 }
 
-RenderType ExternalMeshResource::renderType() const
+RenderType ExternalGeometry::renderType() const
 {
     return m_view.renderType;
 }
 
-bool ExternalMeshResource::hasAttribute(GLuint location, GLint componentCount) const
+bool ExternalGeometry::hasAttribute(GLuint location, GLint componentCount) const
 {
     for (std::size_t i = 0; i < m_view.attributes.size(); ++i)
     {
@@ -210,22 +200,22 @@ bool ExternalMeshResource::hasAttribute(GLuint location, GLint componentCount) c
 
 /// Resource GPU 实现
 
-bool ExternalMeshResource::onPrepareSync()
+bool ExternalGeometry::onPrepareSync()
 {
     if (m_source == 0)
         return true;
 
-    const ExternalMeshRevision currentStructureRevision = m_source->structureRevision();
-    const ExternalMeshRevision currentContentRevision = m_source->contentRevision();
+    const ExternalGeometryRevision currentStructureRevision = m_source->structureRevision();
+    const ExternalGeometryRevision currentContentRevision = m_source->contentRevision();
 
     // Structure Revision 变化意味着旧 DataView 已不能保证继续有效，必须重新获取完整 View。
     if (currentStructureRevision != m_structureRevision)
     {
-        ExternalMeshDataView newView;
+        ExternalGeometryDataView newView;
 
         if (!m_source->dataView(newView))
         {
-            qWarning() << "ExternalMeshResource prepare failed: DataSource cannot provide updated DataView:" << name();
+            qWarning() << "ExternalGeometry prepare failed: DataSource cannot provide updated DataView:" << name();
             return false;
         }
 
@@ -241,7 +231,7 @@ bool ExternalMeshResource::onPrepareSync()
         return true;
     }
 
-    // Revision 完全一致时不扫描 Mesh 数据，也不会产生任何 GPU Upload。
+    // Revision 完全一致时不扫描 Geometry 数据，也不会产生任何 GPU Upload。
     if (currentContentRevision == m_contentRevision)
         return true;
 
@@ -253,7 +243,7 @@ bool ExternalMeshResource::onPrepareSync()
         return true;
     }
 
-    ExternalMeshChangeSet changeSet;
+    ExternalGeometryChangeSet changeSet;
 
     if (!m_source->changesSince(m_contentRevision, changeSet))
     {
@@ -286,7 +276,7 @@ bool ExternalMeshResource::onPrepareSync()
     {
         if (!validateDirtyRange(changeSet.dirtyRanges[i]))
         {
-            qWarning() << "ExternalMeshResource prepare failed: DataSource returned invalid dirty range:" << name();
+            qWarning() << "ExternalGeometry prepare failed: DataSource returned invalid dirty range:" << name();
             return false;
         }
 
@@ -298,7 +288,7 @@ bool ExternalMeshResource::onPrepareSync()
     return true;
 }
 
-bool ExternalMeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGeometry::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateDataView(m_view))
         return false;
@@ -310,7 +300,7 @@ bool ExternalMeshResource::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool ExternalMeshResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGeometry::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!validateDataView(m_view))
         return false;
@@ -322,7 +312,7 @@ bool ExternalMeshResource::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool ExternalMeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGeometry::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_dirtyRanges.empty())
         return true;
@@ -336,7 +326,7 @@ bool ExternalMeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
 
     for (std::size_t i = 0; i < m_dirtyRanges.size(); ++i)
     {
-        const ExternalMeshDirtyRange& range = m_dirtyRanges[i];
+        const ExternalGeometryDirtyRange& range = m_dirtyRanges[i];
 
         if (range.bufferIndex >= 0)
         {
@@ -371,7 +361,7 @@ bool ExternalMeshResource::onUpdatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-void ExternalMeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
+void ExternalGeometry::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 {
     releaseGPUObjects(gl);
     m_dirtyRanges.clear();
@@ -379,23 +369,23 @@ void ExternalMeshResource::onReleaseGL(QOpenGLFunctions_3_3_Core* gl)
 
 /// 数据验证
 
-bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) const
+bool ExternalGeometry::validateDataView(const ExternalGeometryDataView& view) const
 {
     if (view.vertexCount <= 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: vertex count must be greater than zero:" << name();
+        qWarning() << "ExternalGeometry validation failed: vertex count must be greater than zero:" << name();
         return false;
     }
 
     if (view.vertexBuffers.empty())
     {
-        qWarning() << "ExternalMeshResource validation failed: vertex buffers are empty:" << name();
+        qWarning() << "ExternalGeometry validation failed: vertex buffers are empty:" << name();
         return false;
     }
 
     if (view.attributes.empty())
     {
-        qWarning() << "ExternalMeshResource validation failed: attributes are empty:" << name();
+        qWarning() << "ExternalGeometry validation failed: attributes are empty:" << name();
         return false;
     }
 
@@ -405,7 +395,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
         if (buffer.data == 0 || buffer.byteSize == 0 || buffer.stride <= 0)
         {
-            qWarning() << "ExternalMeshResource validation failed: invalid vertex buffer:" << i << name();
+            qWarning() << "ExternalGeometry validation failed: invalid vertex buffer:" << i << name();
             return false;
         }
     }
@@ -416,13 +406,13 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
         if (attribute.bufferIndex < 0 || attribute.bufferIndex >= static_cast<int>(view.vertexBuffers.size()))
         {
-            qWarning() << "ExternalMeshResource validation failed: attribute buffer index is invalid:" << name();
+            qWarning() << "ExternalGeometry validation failed: attribute buffer index is invalid:" << name();
             return false;
         }
 
         if (attribute.componentCount <= 0 || attribute.componentCount > 4)
         {
-            qWarning() << "ExternalMeshResource validation failed: attribute component count must be between 1 and 4:" << name();
+            qWarning() << "ExternalGeometry validation failed: attribute component count must be between 1 and 4:" << name();
             return false;
         }
 
@@ -430,7 +420,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
         if (valueSize == 0)
         {
-            qWarning() << "ExternalMeshResource validation failed: unsupported attribute component type:" << attribute.componentType << name();
+            qWarning() << "ExternalGeometry validation failed: unsupported attribute component type:" << attribute.componentType << name();
             return false;
         }
 
@@ -440,7 +430,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
         if (attribute.byteOffset > stride || attributeByteSize > stride - attribute.byteOffset)
         {
-            qWarning() << "ExternalMeshResource validation failed: attribute exceeds vertex stride:" << name();
+            qWarning() << "ExternalGeometry validation failed: attribute exceeds vertex stride:" << name();
             return false;
         }
 
@@ -448,7 +438,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
         if (requiredBytes > buffer.byteSize)
         {
-            qWarning() << "ExternalMeshResource validation failed: vertex buffer is smaller than declared vertex count:" << name();
+            qWarning() << "ExternalGeometry validation failed: vertex buffer is smaller than declared vertex count:" << name();
             return false;
         }
 
@@ -456,7 +446,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
         {
             if (attribute.location == view.attributes[j].location)
             {
-                qWarning() << "ExternalMeshResource validation failed: duplicate attribute location:" << attribute.location << name();
+                qWarning() << "ExternalGeometry validation failed: duplicate attribute location:" << attribute.location << name();
                 return false;
             }
         }
@@ -464,7 +454,7 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
     if (view.indices.data == 0 || view.indices.byteSize == 0 || view.indices.indexCount <= 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: index buffer is invalid:" << name();
+        qWarning() << "ExternalGeometry validation failed: index buffer is invalid:" << name();
         return false;
     }
 
@@ -472,48 +462,48 @@ bool ExternalMeshResource::validateDataView(const ExternalMeshDataView& view) co
 
     if (indexSize == 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: unsupported index type:" << name();
+        qWarning() << "ExternalGeometry validation failed: unsupported index type:" << name();
         return false;
     }
 
     if (static_cast<std::size_t>(view.indices.indexCount) * indexSize > view.indices.byteSize)
     {
-        qWarning() << "ExternalMeshResource validation failed: index buffer is smaller than declared index count:" << name();
+        qWarning() << "ExternalGeometry validation failed: index buffer is smaller than declared index count:" << name();
         return false;
     }
 
     if (view.renderType == Triangles && view.indices.indexCount % 3 != 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: triangle index count must be divisible by 3:" << name();
+        qWarning() << "ExternalGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
     if (view.renderType == Lines && view.indices.indexCount % 2 != 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: line index count must be divisible by 2:" << name();
+        qWarning() << "ExternalGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
     if (view.renderType == LineStrip && view.indices.indexCount < 2)
     {
-        qWarning() << "ExternalMeshResource validation failed: line strip requires at least 2 indices:" << name();
+        qWarning() << "ExternalGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;
     }
 
     return true;
 }
 
-bool ExternalMeshResource::validateDirtyRange(const ExternalMeshDirtyRange& range) const
+bool ExternalGeometry::validateDirtyRange(const ExternalGeometryDirtyRange& range) const
 {
     if (range.byteSize == 0)
     {
-        qWarning() << "ExternalMeshResource validation failed: dirty range byteSize is zero:" << name();
+        qWarning() << "ExternalGeometry validation failed: dirty range byteSize is zero:" << name();
         return false;
     }
 
     std::size_t bufferByteSize = 0;
 
-    if (range.bufferIndex == ExternalMeshIndexBuffer)
+    if (range.bufferIndex == ExternalGeometryIndexBuffer)
     {
         bufferByteSize = m_view.indices.byteSize;
     }
@@ -521,7 +511,7 @@ bool ExternalMeshResource::validateDirtyRange(const ExternalMeshDirtyRange& rang
     {
         if (range.bufferIndex < 0 || range.bufferIndex >= static_cast<int>(m_view.vertexBuffers.size()))
         {
-            qWarning() << "ExternalMeshResource validation failed: dirty range buffer index is invalid:" << name();
+            qWarning() << "ExternalGeometry validation failed: dirty range buffer index is invalid:" << name();
             return false;
         }
 
@@ -530,7 +520,7 @@ bool ExternalMeshResource::validateDirtyRange(const ExternalMeshDirtyRange& rang
 
     if (range.byteOffset > bufferByteSize || range.byteSize > bufferByteSize - range.byteOffset)
     {
-        qWarning() << "ExternalMeshResource validation failed: dirty range exceeds buffer:" << name();
+        qWarning() << "ExternalGeometry validation failed: dirty range exceeds buffer:" << name();
         return false;
     }
 
@@ -539,14 +529,14 @@ bool ExternalMeshResource::validateDirtyRange(const ExternalMeshDirtyRange& rang
 
 /// GPU Cache
 
-bool ExternalMeshResource::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
+bool ExternalGeometry::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
 {
     if (m_vao == 0)
         gl->glGenVertexArrays(1, &m_vao);
 
     if (m_vao == 0)
     {
-        qWarning() << "ExternalMeshResource upload failed: VAO creation failed:" << name();
+        qWarning() << "ExternalGeometry upload failed: VAO creation failed:" << name();
         return false;
     }
 
@@ -563,7 +553,7 @@ bool ExternalMeshResource::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
     {
         if (m_vertexBuffers[i] == 0)
         {
-            qWarning() << "ExternalMeshResource upload failed: VBO creation failed:" << i << name();
+            qWarning() << "ExternalGeometry upload failed: VBO creation failed:" << i << name();
             releaseGPUObjects(gl);
             return false;
         }
@@ -574,7 +564,7 @@ bool ExternalMeshResource::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
 
     if (m_indexBuffer == 0)
     {
-        qWarning() << "ExternalMeshResource upload failed: EBO creation failed:" << name();
+        qWarning() << "ExternalGeometry upload failed: EBO creation failed:" << name();
         releaseGPUObjects(gl);
         return false;
     }
@@ -629,7 +619,7 @@ bool ExternalMeshResource::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-void ExternalMeshResource::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
+void ExternalGeometry::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
 {
     if (!m_vertexBuffers.empty())
     {
@@ -654,16 +644,16 @@ void ExternalMeshResource::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
 
 /// GPU 统计
 
-void ExternalMeshResource::recordFullSync(std::size_t uploadedBytes, unsigned long long vertexCalls, unsigned long long indexCalls)
+void ExternalGeometry::recordFullSync(std::size_t uploadedBytes, unsigned long long vertexCalls, unsigned long long indexCalls)
 {
     ++m_syncStatistics.fullSyncCount;
     m_syncStatistics.vertexUploadCalls += vertexCalls;
     m_syncStatistics.indexUploadCalls += indexCalls;
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
-    m_syncStatistics.lastSyncType = ExternalMeshSyncFull;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncFull;
 
-    qDebug() << "ExternalMeshResource Full GPU Sync:"
+    qDebug() << "ExternalGeometry Full GPU Sync:"
              << name()
              << "StructureRevision=" << static_cast<qulonglong>(m_structureRevision)
              << "ContentRevision=" << static_cast<qulonglong>(m_contentRevision)
@@ -672,16 +662,16 @@ void ExternalMeshResource::recordFullSync(std::size_t uploadedBytes, unsigned lo
              << "IndexCalls=" << static_cast<qulonglong>(indexCalls);
 }
 
-void ExternalMeshResource::recordPartialSync(std::size_t uploadedBytes, unsigned long long vertexCalls, unsigned long long indexCalls)
+void ExternalGeometry::recordPartialSync(std::size_t uploadedBytes, unsigned long long vertexCalls, unsigned long long indexCalls)
 {
     ++m_syncStatistics.partialSyncCount;
     m_syncStatistics.vertexUploadCalls += vertexCalls;
     m_syncStatistics.indexUploadCalls += indexCalls;
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
-    m_syncStatistics.lastSyncType = ExternalMeshSyncPartial;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncPartial;
 
-    qDebug() << "ExternalMeshResource Partial GPU Sync:"
+    qDebug() << "ExternalGeometry Partial GPU Sync:"
              << name()
              << "ContentRevision=" << static_cast<qulonglong>(m_contentRevision)
              << "UploadedBytes=" << static_cast<qulonglong>(uploadedBytes)
@@ -691,12 +681,12 @@ void ExternalMeshResource::recordPartialSync(std::size_t uploadedBytes, unsigned
 
 /// 内部辅助
 
-void ExternalMeshResource::appendDirtyRange(const ExternalMeshDirtyRange& range)
+void ExternalGeometry::appendDirtyRange(const ExternalGeometryDirtyRange& range)
 {
     // 相同 Buffer 上发生重叠或相邻的 Dirty Range 时直接合并，减少 glBufferSubData 调用数量。
     for (std::size_t i = 0; i < m_dirtyRanges.size(); ++i)
     {
-        ExternalMeshDirtyRange& existing = m_dirtyRanges[i];
+        ExternalGeometryDirtyRange& existing = m_dirtyRanges[i];
 
         if (existing.bufferIndex != range.bufferIndex)
             continue;
@@ -718,7 +708,7 @@ void ExternalMeshResource::appendDirtyRange(const ExternalMeshDirtyRange& range)
     m_dirtyRanges.push_back(range);
 }
 
-std::size_t ExternalMeshResource::componentTypeSize(GLenum type) const
+std::size_t ExternalGeometry::componentTypeSize(GLenum type) const
 {
     switch (type)
     {
@@ -743,7 +733,7 @@ std::size_t ExternalMeshResource::componentTypeSize(GLenum type) const
     return 0;
 }
 
-std::size_t ExternalMeshResource::indexTypeSize(GLenum type) const
+std::size_t ExternalGeometry::indexTypeSize(GLenum type) const
 {
     switch (type)
     {
@@ -757,22 +747,22 @@ std::size_t ExternalMeshResource::indexTypeSize(GLenum type) const
     return 0;
 }
 
-GLenum ExternalMeshResource::bufferUsage() const
+GLenum ExternalGeometry::bufferUsage() const
 {
     return updatePolicy() == ResourceUpdateDynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
 }
 
 /// 调试名称
 
-const char* externalMeshSyncTypeName(ExternalMeshSyncType type)
+const char* externalGeometrySyncTypeName(ExternalGeometrySyncType type)
 {
     switch (type)
     {
-    case ExternalMeshSyncNone:
+    case ExternalGeometrySyncNone:
         return "None";
-    case ExternalMeshSyncFull:
+    case ExternalGeometrySyncFull:
         return "Full";
-    case ExternalMeshSyncPartial:
+    case ExternalGeometrySyncPartial:
         return "Partial";
     }
 

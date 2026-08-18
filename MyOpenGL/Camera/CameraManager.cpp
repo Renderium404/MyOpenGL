@@ -312,53 +312,50 @@ bool CameraManager::orbit(float yawDegrees, float pitchDegrees)
         return false;
 
     const QVector3D center = m_viewBounds.center();
-    QVector3D offset = camera->position() - center;
-    const QVector3D orbitUp = camera->up().normalized();
+    const QVector3D offset = camera->position() - center;
 
     const float directionEpsilon = 1.0e-8f;
 
-    if (offset.lengthSquared() <= directionEpsilon || orbitUp.lengthSquared() <= directionEpsilon)
+    if (offset.lengthSquared() <= directionEpsilon)
     {
-        qWarning() << "CameraManager orbit failed: current Camera view is invalid:" << camera->name();
+        qWarning() << "CameraManager orbit failed: current Camera position equals View Bounds Center:" << camera->name();
         return false;
     }
 
-    // Yaw 始终围绕当前参考 Up 旋转。
-    const QQuaternion yawRotation = QQuaternion::fromAxisAndAngle(orbitUp, yawDegrees);
-    offset = yawRotation.rotatedVector(offset);
+    const QVector3D orbitUp = camera->viewUp();
+    const QVector3D orbitRight = camera->right();
 
-    const QVector3D yawForward = (-offset).normalized();
-    const QVector3D pitchAxis = QVector3D::crossProduct(yawForward, orbitUp).normalized();
-
-    // Forward 与 Up 的点积等于当前 Elevation 的正弦值；限制到 [-1, 1] 避免浮点误差进入 asin() 非法范围。
-    float upDot = QVector3D::dotProduct(yawForward, orbitUp);
-
-    if (upDot < -1.0f)
-        upDot = -1.0f;
-    else if (upDot > 1.0f)
-        upDot = 1.0f;
-
-    const float currentPitchDegrees = qRadiansToDegrees(qAsin(upDot));
-
-    // 保留 1 度极点余量，避免 Forward 与 Up 平行后 Right 方向退化。
-    const float maximumPitchDegrees = 89.0f;
-    float targetPitchDegrees = currentPitchDegrees + pitchDegrees;
-
-    if (targetPitchDegrees < -maximumPitchDegrees)
-        targetPitchDegrees = -maximumPitchDegrees;
-    else if (targetPitchDegrees > maximumPitchDegrees)
-        targetPitchDegrees = maximumPitchDegrees;
-
-    const float appliedPitchDegrees = targetPitchDegrees - currentPitchDegrees;
-
-    if (qAbs(appliedPitchDegrees) > 1.0e-6f)
+    if (orbitUp.lengthSquared() <= directionEpsilon || orbitRight.lengthSquared() <= directionEpsilon)
     {
-        const QQuaternion pitchRotation = QQuaternion::fromAxisAndAngle(pitchAxis, appliedPitchDegrees);
-        offset = pitchRotation.rotatedVector(offset);
+        qWarning() << "CameraManager orbit failed: current Camera orientation is invalid:" << camera->name();
+        return false;
     }
 
-    const QVector3D forward = (-offset).normalized();
-    return applyView(m_viewBounds, forward, orbitUp, offset.length());
+    // 鼠标一次二维拖动直接转换为当前屏幕坐标系中的旋转向量：
+    // Horizontal -> 当前 Camera Up，Vertical -> 当前 Camera Right。
+    // 旋转轴来自当前完整姿态，不依赖世界固定 Up，也不限制 Pitch 到 +/-89 度。
+    const QVector3D rotationVector = orbitUp * yawDegrees + orbitRight * pitchDegrees;
+    const float rotationAngle = rotationVector.length();
+
+    if (rotationAngle <= 1.0e-6f)
+        return true;
+
+    const QQuaternion incrementalRotation =
+        QQuaternion::fromAxisAndAngle(rotationVector / rotationAngle, rotationAngle);
+
+    const QVector3D rotatedOffset = incrementalRotation.rotatedVector(offset);
+    const QVector3D rotatedUp = incrementalRotation.rotatedVector(orbitUp).normalized();
+
+    if (rotatedOffset.lengthSquared() <= directionEpsilon || rotatedUp.lengthSquared() <= directionEpsilon)
+    {
+        qWarning() << "CameraManager orbit failed: quaternion rotation produced invalid Camera state:" << camera->name();
+        return false;
+    }
+
+    // Position Offset 与 Up 使用同一个增量四元数旋转，因此穿过顶部/底部后仍保持完整相机姿态，
+    // 不会出现 Forward 与固定世界 Up 平行导致的极点锁定。
+    const QVector3D forward = (-rotatedOffset).normalized();
+    return applyView(m_viewBounds, forward, rotatedUp, rotatedOffset.length());
 }
 
 bool CameraManager::pan(float rightDistance, float upDistance)
