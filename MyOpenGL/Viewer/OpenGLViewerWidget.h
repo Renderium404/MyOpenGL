@@ -19,6 +19,7 @@ class GridPlaneGeometry;
 class BufferGeometry;
 class QLabel;
 class QKeyEvent;
+class QMenu;
 class QMouseEvent;
 class QWheelEvent;
 class RenderItem;
@@ -42,6 +43,7 @@ const char* viewerPickModeName(ViewerPickMode mode);
 /// 业务模型、外部建模库 Adapter、Worker/Fence 和功能测试由派生窗口提供。
 class OpenGLViewerWidget : public QOpenGLWidget
 {
+     Q_OBJECT
 public:
     explicit OpenGLViewerWidget(QWidget* parent = 0);
     ~OpenGLViewerWidget() override;
@@ -103,6 +105,7 @@ protected:
     virtual bool initializeViewerContentGL(QOpenGLFunctions_3_3_Core* gl); // Renderer Context ready 后初始化派生 GL/Shared-Context 内容；默认无需额外处理。
     virtual void buildViewerContentItems();                                // 创建用户可操作的业务 RenderItem；这些 Item 才进入 Scene，默认不创建。
     virtual bool handleViewerKeyPress(QKeyEvent* event);                   // 处理 Viewer 未消费的业务快捷键；处理后返回 true。
+    virtual void populateViewerContextMenu(QMenu* menu, const QPoint& position); // 向右键菜单追加派生 Viewer 操作；默认不添加。
     virtual void viewerStateChanged();                                     // Camera、Picking 交互状态、辅助显示状态变化后的通知；默认不处理。
     virtual void afterViewerGLReleased();                                  // Viewer Resource 已释放后清理派生 Shared GPU 状态；默认不处理。
 
@@ -167,7 +170,8 @@ private:
     BufferGeometry* createMeasurementLineGeometry();
 
     /// Measurement / Picking 内部辅助
-    bool handleRightClickPick(const QPoint& position);                  // 按当前 ViewerPickMode 分派一次右键 Point / Triangle / Item 查询。
+    bool handleRightClickPick(const QPoint& position);                  // 按当前 ViewerPickMode 分派一次显式 Pick；Shift+右键保留快速入口。
+    void showViewerContextMenu(const QPoint& position);                  // 构造并执行 Viewer 标准右键菜单。
     bool measureAt(const QPoint& position);                             // Point Mode 下只使用精确 Vertex / Endpoint Snap 推进 A -> B -> 新 A。
     bool projectWorldPointToScreen(const QVector3D& worldPoint, QPointF& screenPoint) const; // 将明确 World Point 投影到当前 Widget Pixel。
     void updateMeasurementLabels();                                      // 更新 QLabel Overlay 的坐标、长度文字和屏幕位置，不使用 QPainter OpenGL Paint Engine。

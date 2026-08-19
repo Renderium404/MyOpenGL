@@ -6,6 +6,7 @@
 #include <QMatrix4x4>
 #include <QMouseEvent>
 #include <QLabel>
+#include <QMenu>
 #include <QOpenGLContext>
 #include <QWheelEvent>
 #include <QSurfaceFormat>
@@ -54,7 +55,7 @@ OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
     , m_rightDragOccurred(false)
     , m_glReady(false)
     , m_releasePerformed(false)
-    , m_showGrid(true)
+    , m_showGrid(false)
     , m_showAxes(true)
     , m_showViewNavigation(true)
     , m_showCameraTarget(true)
@@ -529,7 +530,7 @@ void OpenGLViewerWidget::clearMeasurement()
 
     if (changed)
     {
-        qDebug() << "OpenGLViewerWidget Measurement cleared.";
+        // qDebug() << "OpenGLViewerWidget Measurement cleared.";
         viewerStateChanged();
         update();
     }
@@ -567,7 +568,7 @@ bool OpenGLViewerWidget::setPickMode(ViewerPickMode mode)
     clearBoundsHighlight();
     clearPrimitiveHighlight();
 
-    qDebug() << "OpenGLViewerWidget Picking Mode changed:" << viewerPickModeName(m_pickMode);
+    // qDebug() << "OpenGLViewerWidget Picking Mode changed:" << viewerPickModeName(m_pickMode);
 
     viewerStateChanged();
     update();
@@ -579,12 +580,13 @@ void OpenGLViewerWidget::cyclePickMode()
     switch (m_pickMode)
     {
     case ViewerPickModePoint:
-        setPickMode(ViewerPickModeTriangle);
-        break;
-
-    case ViewerPickModeTriangle:
+        // setPickMode(ViewerPickModeTriangle);
         setPickMode(ViewerPickModeItem);
         break;
+
+    // case ViewerPickModeTriangle:
+    //     setPickMode(ViewerPickModeItem);
+    //     break;
 
     case ViewerPickModeItem:
         setPickMode(ViewerPickModePoint);
@@ -705,6 +707,12 @@ bool OpenGLViewerWidget::handleViewerKeyPress(QKeyEvent* event)
     return false;
 }
 
+void OpenGLViewerWidget::populateViewerContextMenu(QMenu* menu, const QPoint& position)
+{
+    Q_UNUSED(menu);
+    Q_UNUSED(position);
+}
+
 void OpenGLViewerWidget::viewerStateChanged()
 {
 }
@@ -773,7 +781,7 @@ void OpenGLViewerWidget::initializeGL()
         return;
     }
 
-    m_renderer.setClearColor(QVector4D(0.08f, 0.08f, 0.1f, 1.0f));
+    m_renderer.setClearColor(QVector4D(0.86f, 0.91f, 0.97f, 1.0f));
     m_glReady = true;
     viewerStateChanged();
 }
@@ -1076,7 +1084,12 @@ void OpenGLViewerWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::RightButton)
     {
         if (!m_rightDragOccurred)
-            handleRightClickPick(event->pos());
+        {
+            if (event->modifiers() & Qt::ShiftModifier)
+                handleRightClickPick(event->pos());
+            else
+                showViewerContextMenu(event->pos());
+        }
 
         m_rightDragOccurred = false;
         event->accept();
@@ -1231,7 +1244,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
         if (currentPickedItem == 0)
         {
             // 没有当前 Pick 是正常交互状态，不作为程序错误输出 Warning。
-            qDebug() << "OpenGLViewerWidget Fit Picked Item ignored: no item is currently picked.";
+            // qDebug() << "OpenGLViewerWidget Fit Picked Item ignored: no item is currently picked.";
             return;
         }
 
@@ -1241,12 +1254,12 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
             const Camera* camera = m_cameraManager.activeCamera();
 
             // F 只属于 Viewer 快捷键交互语义；基础 fitItemToView() 只接收明确 Item。
-            qDebug() << "OpenGLViewerWidget Fit Picked Item:"
-                     << "Item=" << currentPickedItem->name()
-                     << "Minimum=" << bounds.minimum()
-                     << "Maximum=" << bounds.maximum()
-                     << "Center=" << bounds.center()
-                     << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
+            // qDebug() << "OpenGLViewerWidget Fit Picked Item:"
+            //          << "Item=" << currentPickedItem->name()
+            //          << "Minimum=" << bounds.minimum()
+            //          << "Maximum=" << bounds.maximum()
+            //          << "Center=" << bounds.center()
+            //          << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
 
             viewerStateChanged();
             update();
@@ -1392,8 +1405,8 @@ void OpenGLViewerWidget::rebuildViewerSceneItems()
 
     buildViewerContentItems();
 
-    qDebug() << "OpenGLViewerWidget User Scene built:"
-             << "Items=" << m_scene.itemCount();
+    // qDebug() << "OpenGLViewerWidget User Scene built:"
+    //          << "Items=" << m_scene.itemCount();
 }
 
 BufferGeometry* OpenGLViewerWidget::createCameraTargetMarker()
@@ -1691,15 +1704,15 @@ bool OpenGLViewerWidget::pickAt(const QPoint& position, QVector3D* hitPosition)
         else
             clearPrimitiveHighlight();
 
-        qDebug() << "OpenGLViewerWidget Primitive Pick changed:"
-                 << "Item=" << primitiveHit.item->name()
-                 << "Type=" << primitivePickTypeName(primitiveHit.type)
-                 << "PrimitiveIndex=" << primitiveHit.primitiveIndex
-                 << "HitDistance=" << primitiveHit.distance
-                 << "HitPosition=" << primitiveHit.position
-                 << "Barycentric=" << primitiveHit.barycentric
-                 << "BoundsMinimum=" << bounds.minimum()
-                 << "BoundsMaximum=" << bounds.maximum();
+        // qDebug() << "OpenGLViewerWidget Primitive Pick changed:"
+        //          << "Item=" << primitiveHit.item->name()
+        //          << "Type=" << primitivePickTypeName(primitiveHit.type)
+        //          << "PrimitiveIndex=" << primitiveHit.primitiveIndex
+        //          << "HitDistance=" << primitiveHit.distance
+        //          << "HitPosition=" << primitiveHit.position
+        //          << "Barycentric=" << primitiveHit.barycentric
+        //          << "BoundsMinimum=" << bounds.minimum()
+        //          << "BoundsMaximum=" << bounds.maximum();
 
         if (hitPosition != 0)
             *hitPosition = primitiveHit.position;
@@ -1720,12 +1733,12 @@ bool OpenGLViewerWidget::pickAt(const QPoint& position, QVector3D* hitPosition)
         showBoundsHighlight(bounds);
         clearPrimitiveHighlight();
 
-        qDebug() << "OpenGLViewerWidget Object Bounds Pick fallback:"
-                 << "Item=" << objectHit.item->name()
-                 << "HitDistance=" << objectHit.distance
-                 << "HitPosition=" << objectHit.position
-                 << "BoundsMinimum=" << bounds.minimum()
-                 << "BoundsMaximum=" << bounds.maximum();
+        // qDebug() << "OpenGLViewerWidget Object Bounds Pick fallback:"
+        //          << "Item=" << objectHit.item->name()
+        //          << "HitDistance=" << objectHit.distance
+        //          << "HitPosition=" << objectHit.position
+        //          << "BoundsMinimum=" << bounds.minimum()
+        //          << "BoundsMaximum=" << bounds.maximum();
 
         if (hitPosition != 0)
             *hitPosition = objectHit.position;
@@ -1776,25 +1789,25 @@ bool OpenGLViewerWidget::pickPointAt(const QPoint& position, ScenePointHit& hit)
     if (!m_scene.pickPoint(m_pickCandidates, query, hit, true))
         return false;
 
-    if (!setPickedItem(hit.item))
-        return false;
+    // if (!setPickedItem(hit.item))
+    //     return false;
 
-    const AxisAlignedBoundingBox bounds = hit.item->worldBounds();
-    showBoundsHighlight(bounds);
+    // const AxisAlignedBoundingBox bounds = hit.item->worldBounds();
+    // showBoundsHighlight(bounds);
 
     // Measurement Point Marker 会在 setMeasurementPointA/B() 后显示精确 Snap 位置；
     // 这里不复用 Triangle/Line Primitive Highlight，避免把 Vertex Snap 伪装成其他 Primitive。
     clearPrimitiveHighlight();
 
-    qDebug() << "OpenGLViewerWidget Point Pick changed:"
-             << "Item=" << hit.item->name()
-             << "PartId=" << static_cast<qulonglong>(hit.partId)
-             << "VertexIndex=" << hit.vertexIndex
-             << "ScreenDistance=" << hit.screenDistance
-             << "HitDistance=" << hit.distance
-             << "HitPosition=" << hit.position
-             << "BoundsMinimum=" << bounds.minimum()
-             << "BoundsMaximum=" << bounds.maximum();
+    // qDebug() << "OpenGLViewerWidget Point Pick changed:"
+    //          << "Item=" << hit.item->name()
+    //          << "PartId=" << static_cast<qulonglong>(hit.partId)
+    //          << "VertexIndex=" << hit.vertexIndex
+    //          << "ScreenDistance=" << hit.screenDistance
+    //          << "HitDistance=" << hit.distance
+    //          << "HitPosition=" << hit.position
+    //          << "BoundsMinimum=" << bounds.minimum()
+    //          << "BoundsMaximum=" << bounds.maximum();
 
     viewerStateChanged();
     update();
@@ -1849,15 +1862,15 @@ bool OpenGLViewerWidget::pickTriangleAt(const QPoint& position, ScenePrimitiveHi
     showBoundsHighlight(bounds);
     showTriangleHighlight(hit.vertices[0], hit.vertices[1], hit.vertices[2]);
 
-    qDebug() << "OpenGLViewerWidget Triangle Pick changed:"
-             << "Item=" << hit.item->name()
-             << "PartId=" << static_cast<qulonglong>(hit.partId)
-             << "PrimitiveIndex=" << hit.primitiveIndex
-             << "HitDistance=" << hit.distance
-             << "HitPosition=" << hit.position
-             << "Barycentric=" << hit.barycentric
-             << "BoundsMinimum=" << bounds.minimum()
-             << "BoundsMaximum=" << bounds.maximum();
+    // qDebug() << "OpenGLViewerWidget Triangle Pick changed:"
+    //          << "Item=" << hit.item->name()
+    //          << "PartId=" << static_cast<qulonglong>(hit.partId)
+    //          << "PrimitiveIndex=" << hit.primitiveIndex
+    //          << "HitDistance=" << hit.distance
+    //          << "HitPosition=" << hit.position
+    //          << "Barycentric=" << hit.barycentric
+    //          << "BoundsMinimum=" << bounds.minimum()
+    //          << "BoundsMaximum=" << bounds.maximum();
 
     viewerStateChanged();
     update();
@@ -1894,16 +1907,256 @@ bool OpenGLViewerWidget::pickItemAt(const QPoint& position, SceneRayHit& hit)
     showBoundsHighlight(bounds);
     clearPrimitiveHighlight();
 
-    qDebug() << "OpenGLViewerWidget Item Pick changed:"
-             << "Item=" << hit.item->name()
-             << "HitDistance=" << hit.distance
-             << "HitPosition=" << hit.position
-             << "BoundsMinimum=" << bounds.minimum()
-             << "BoundsMaximum=" << bounds.maximum();
+    // qDebug() << "OpenGLViewerWidget Item Pick changed:"
+    //          << "Item=" << hit.item->name()
+    //          << "HitDistance=" << hit.distance
+    //          << "HitPosition=" << hit.position
+    //          << "BoundsMinimum=" << bounds.minimum()
+    //          << "BoundsMaximum=" << bounds.maximum();
 
     viewerStateChanged();
     update();
     return true;
+}
+
+void OpenGLViewerWidget::showViewerContextMenu(const QPoint& position)
+{
+    QMenu menu(this);
+
+    /// Camera
+
+    QAction* fitAllAction = menu.addAction(tr("Fit All"));
+    connect(fitAllAction, &QAction::triggered, this, [this]()
+    {
+        if (fitSceneToView())
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* fitPickedAction = menu.addAction(tr("Fit Picked"));
+    fitPickedAction->setEnabled(m_pickedItem != 0);
+    connect(fitPickedAction, &QAction::triggered, this, [this]()
+    {
+        if (m_pickedItem != 0 && fitItemToView(m_pickedItem))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QMenu* viewMenu = menu.addMenu(tr("View"));
+
+    QAction* isometricAction = viewMenu->addAction(tr("Isometric"));
+    connect(isometricAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewIsometric() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* frontAction = viewMenu->addAction(tr("Front"));
+    connect(frontAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewFront() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* backAction = viewMenu->addAction(tr("Back"));
+    connect(backAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewBack() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* leftAction = viewMenu->addAction(tr("Left"));
+    connect(leftAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewLeft() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* rightAction = viewMenu->addAction(tr("Right"));
+    connect(rightAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewRight() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* topAction = viewMenu->addAction(tr("Top"));
+    connect(topAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewTop() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    QAction* bottomAction = viewMenu->addAction(tr("Bottom"));
+    connect(bottomAction, &QAction::triggered, this, [this]()
+    {
+        if (m_cameraManager.viewBottom() && m_cameraManager.fitViewBounds(width(), height()))
+        {
+            viewerStateChanged();
+            update();
+        }
+    });
+
+    /// Viewer Display
+
+    QMenu* displayMenu = menu.addMenu(tr("Display"));
+
+    // QAction* gridAction = displayMenu->addAction(tr("Grid"));
+    // gridAction->setCheckable(true);
+    // gridAction->setChecked(m_showGrid);
+    // connect(gridAction, &QAction::toggled, this, [this](bool checked)
+    // {
+    //     setGridVisible(checked);
+    // });
+
+    QAction* axesAction = displayMenu->addAction(tr("Axes"));
+    axesAction->setCheckable(true);
+    axesAction->setChecked(m_showAxes);
+    connect(axesAction, &QAction::toggled, this, [this](bool checked)
+    {
+        setAxesVisible(checked);
+    });
+
+    QAction* navigationAction = displayMenu->addAction(tr("View Navigation"));
+    navigationAction->setCheckable(true);
+    navigationAction->setChecked(m_showViewNavigation);
+    connect(navigationAction, &QAction::toggled, this, [this](bool checked)
+    {
+        setViewNavigationVisible(checked);
+    });
+
+    QAction* targetAction = displayMenu->addAction(tr("Camera Target"));
+    targetAction->setCheckable(true);
+    targetAction->setChecked(m_showCameraTarget);
+    connect(targetAction, &QAction::toggled, this, [this](bool checked)
+    {
+        setCameraTargetVisible(checked);
+    });
+
+    /// Picking
+
+    QMenu* pickingMenu = menu.addMenu(tr("Picking"));
+
+    // QAction* pickHereAction = pickingMenu->addAction(QString("Pick Here (%1)").arg(viewerPickModeName(m_pickMode)));
+    // connect(pickHereAction, &QAction::triggered, this, [this, position]()
+    // {
+    //     handleRightClickPick(position);
+    // });
+
+    pickingMenu->addSeparator();
+
+    QAction* pointModeAction = pickingMenu->addAction(tr("Point / Measure"));
+    pointModeAction->setCheckable(true);
+    pointModeAction->setChecked(m_pickMode == ViewerPickModePoint);
+    connect(pointModeAction, &QAction::triggered, this, [this]()
+    {
+        setPickMode(ViewerPickModePoint);
+    });
+
+    // QAction* triangleModeAction = pickingMenu->addAction(tr("Triangle"));
+    // triangleModeAction->setCheckable(true);
+    // triangleModeAction->setChecked(m_pickMode == ViewerPickModeTriangle);
+    // connect(triangleModeAction, &QAction::triggered, this, [this]()
+    // {
+    //     setPickMode(ViewerPickModeTriangle);
+    // });
+
+    QAction* itemModeAction = pickingMenu->addAction(tr("Item"));
+    itemModeAction->setCheckable(true);
+    itemModeAction->setChecked(m_pickMode == ViewerPickModeItem);
+    connect(itemModeAction, &QAction::triggered, this, [this]()
+    {
+        setPickMode(ViewerPickModeItem);
+    });
+
+    /// Item Visibility
+
+    menu.addSeparator();
+
+    // QAction* hidePickedAction = menu.addAction(tr("Hide Picked"));
+    // hidePickedAction->setEnabled(m_pickedItem != 0);
+    // connect(hidePickedAction, &QAction::triggered, this, [this]()
+    // {
+    //     if (m_pickedItem != 0)
+    //         setItemVisible(m_pickedItem, false);
+    // });
+
+    // QAction* isolatePickedAction = menu.addAction(tr("Isolate Picked"));
+    // isolatePickedAction->setEnabled(m_pickedItem != 0);
+    // connect(isolatePickedAction, &QAction::triggered, this, [this]()
+    // {
+    //     if (m_pickedItem == 0)
+    //         return;
+
+    //     std::vector<RenderItem*> items;
+    //     items.push_back(m_pickedItem);
+    //     isolateItems(items);
+    // });
+
+    // QAction* showAllAction = menu.addAction(tr("Show All"));
+    // connect(showAllAction, &QAction::triggered, this, [this]()
+    // {
+    //     setAllItemsVisible(true);
+    // });
+
+    /// Clear
+
+    menu.addSeparator();
+
+    QAction* clearPickAction = menu.addAction(tr("Clear Pick"));
+    clearPickAction->setEnabled(m_pickedItem != 0 || m_showBoundsHighlight || m_showPrimitiveHighlight);
+    connect(clearPickAction, &QAction::triggered, this, [this]()
+    {
+        clearPickedItem();
+        clearMeasurement();
+        clearBoundsHighlight();
+        clearPrimitiveHighlight();
+        viewerStateChanged();
+        update();
+    });
+
+    // QAction* clearMeasurementAction = menu.addAction(tr("Clear Measurement"));
+    // clearMeasurementAction->setEnabled(m_hasMeasurementPointA || m_hasMeasurementPointB);
+    // connect(clearMeasurementAction, &QAction::triggered, this, [this]()
+    // {
+    //     clearMeasurement();
+    // });
+
+    /// Derived Viewer
+
+    const int baseActionCount = menu.actions().size();
+    populateViewerContextMenu(&menu, position);
+
+    if (menu.actions().size() > baseActionCount)
+    {
+        QAction* firstDerivedAction = menu.actions().at(baseActionCount);
+
+        if (firstDerivedAction != 0 && !firstDerivedAction->isSeparator())
+            menu.insertSeparator(firstDerivedAction);
+    }
+
+    menu.exec(mapToGlobal(position));
 }
 
 bool OpenGLViewerWidget::handleRightClickPick(const QPoint& position)
@@ -2075,7 +2328,7 @@ const RenderItem* OpenGLViewerWidget::pickedItem() const
 void OpenGLViewerWidget::clearPickedItem()
 {
     if (m_pickedItem != 0)
-        qDebug() << "OpenGLViewerWidget Picked Item cleared:" << m_pickedItem->name();
+        // qDebug() << "OpenGLViewerWidget Picked Item cleared:" << m_pickedItem->name();
 
     m_pickedItem = 0;
 }
@@ -2260,11 +2513,11 @@ bool OpenGLViewerWidget::fitSceneToView()
 
     const Camera* camera = m_cameraManager.activeCamera();
 
-    qDebug() << "OpenGLViewerWidget Fit All:"
-             << "Minimum=" << bounds.minimum()
-             << "Maximum=" << bounds.maximum()
-             << "Center=" << bounds.center()
-             << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
+    // qDebug() << "OpenGLViewerWidget Fit All:"
+    //          << "Minimum=" << bounds.minimum()
+    //          << "Maximum=" << bounds.maximum()
+    //          << "Center=" << bounds.center()
+    //          << "CameraDistance=" << (camera != 0 ? camera->distanceToTarget() : 0.0f);
 
     return true;
 }
@@ -2378,14 +2631,14 @@ void OpenGLViewerWidget::logCameraView(const char* viewName) const
     if (camera == 0)
         return;
 
-    qDebug() << "OpenGLViewerWidget Standard View:"
-             << viewName
-             << "ViewBoundsCenter=" << m_cameraManager.viewBounds().center()
-             << "Position=" << camera->position()
-             << "Target=" << camera->target()
-             << "Forward=" << camera->forward()
-             << "ViewUp=" << camera->viewUp()
-             << "CameraDistance=" << camera->distanceToTarget();
+    // qDebug() << "OpenGLViewerWidget Standard View:"
+    //          << viewName
+    //          << "ViewBoundsCenter=" << m_cameraManager.viewBounds().center()
+    //          << "Position=" << camera->position()
+    //          << "Target=" << camera->target()
+    //          << "Forward=" << camera->forward()
+    //          << "ViewUp=" << camera->viewUp()
+    //          << "CameraDistance=" << camera->distanceToTarget();
 }
 
 /// 低层访问
