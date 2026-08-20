@@ -1,313 +1,228 @@
 #include "Camera.h"
 
-#include <QDebug>
-#include <QMatrix3x3>
-#include <QVector4D>
-#include <QtMath>
-
-const char* cameraProjectionTypeName(CameraProjectionType type)
+Camera::Camera()
+    : m_id(InvalidCameraId)
+    , m_name("Camera")
+    , m_position(0.0f, 0.0f, 0.0f)
+    , m_orientation()
+    , m_type(ProjectionType::Perspective)
+    , m_perspectiveFieldOfView(45.0f)
+    , m_perspectiveNearPlane(0.1f)
+    , m_perspectiveFarPlane(1000.0f)
+    , m_parallelHeight(10.0f)
+    , m_parallelNearPlane(0.1f)
+    , m_parallelFarPlane(1000.0f)
 {
-    switch (type)
+    setPerspective(45.0f, 0.1f, 1000.0f);
+}
+QString Camera::type() const
+{
+    switch (m_type)
     {
-    case CameraProjectionPerspective:
-        return "Perspective";
-    case CameraProjectionOrthographic:
-        return "Orthographic";
+    case ProjectionType::Perspective: return "Perspective";
+    case ProjectionType::Parallel: return "Parallel";
     }
 
     return "Unknown";
 }
-
-Camera::Camera(const QString& name)
-    : m_id(InvalidCameraId)
-    , m_name(name)
-    , m_projectionType(CameraProjectionPerspective)
-    , m_position(0.0f, 0.0f, 5.0f)
-    , m_target(0.0f, 0.0f, 0.0f)
-    , m_up(0.0f, 1.0f, 0.0f)
-    , m_orientation(1.0f, 0.0f, 0.0f, 0.0f) // 默认 Local Forward(-Z) 正对世界 -Z，Local Up(+Y) 对齐世界 +Y。
-    , m_fieldOfView(45.0f)           // 常用透视垂直视场角，兼顾视野范围和透视变形。
-    , m_orthographicHeight(10.0f)    // 默认正交视图从 -5 到 +5，共显示 10 个世界坐标单位。
-    , m_nearPlane(0.1f)              // Near 必须大于 0，0.1 适合作为当前普通场景默认值。
-    , m_farPlane(1000.0f)            // 为当前教学场景保留足够大的可视距离。
+bool Camera::setPerspective(float fieldOfView, float nearPlane, float farPlane)
 {
+    if (fieldOfView <= 0.0f || fieldOfView >= 180.0f)
+        return false;
+
+    if (nearPlane <= 0.0f || farPlane <= nearPlane)
+        return false;
+
+    m_perspectiveFieldOfView = fieldOfView;
+    m_perspectiveNearPlane = nearPlane;
+    m_perspectiveFarPlane = farPlane;
+    setType(ProjectionType::Perspective);
+    return true;
+}
+bool Camera::setParallel(float height, float nearPlane, float farPlane)
+{
+    if (height <= 0.0f)
+        return false;
+
+    if (nearPlane <= 0.0f || farPlane <= nearPlane)
+        return false;
+
+    m_parallelHeight = height;
+    m_parallelNearPlane = nearPlane;
+    m_parallelFarPlane = farPlane;
+    setType(ProjectionType::Parallel);
+    return true;
+}
+bool Camera::setCamera(const QMatrix4x4& matrix)
+{
+    if (!matrix.isAffine())
+        return false;
+
+    m_position = matrix.column(3).toVector3D();
+
+    QMatrix3x3 rotation;
+    rotation(0, 0) = matrix(0, 0);
+    rotation(0, 1) = matrix(0, 1);
+    rotation(0, 2) = matrix(0, 2);
+
+    rotation(1, 0) = matrix(1, 0);
+    rotation(1, 1) = matrix(1, 1);
+    rotation(1, 2) = matrix(1, 2);
+
+    rotation(2, 0) = matrix(2, 0);
+    rotation(2, 1) = matrix(2, 1);
+    rotation(2, 2) = matrix(2, 2);
+
+    m_orientation = QQuaternion::fromRotationMatrix(rotation).normalized();
+
+    return true;
+}
+bool Camera::setCamera(const QVector3D& position, const QQuaternion& orientation)
+{
+    if (orientation.isNull())
+        return false;
+
+    m_position = position;
+    m_orientation = orientation.normalized();
+    return true;
 }
 
-/// 相机基本信息
 
-CameraId Camera::id() const
+QMatrix4x4 Camera::cameraMatrix() const
 {
-    return m_id;
+    QMatrix4x4 matrix;
+    matrix.translate(m_position);
+    matrix.rotate(m_orientation);
+    return matrix;
 }
-
-const QString& Camera::name() const
+QMatrix4x4 Camera::viewMatrix() const
 {
-    return m_name;
+    QMatrix4x4 view;
+    view.rotate(m_orientation.conjugated());
+    view.translate(-m_position);
+    return view;
 }
-
-CameraProjectionType Camera::projectionType() const
-{
-    return m_projectionType;
-}
-
-/// 观察状态
-
-const QVector3D& Camera::position() const
-{
-    return m_position;
-}
-
-const QVector3D& Camera::target() const
-{
-    return m_target;
-}
-
-const QVector3D& Camera::up() const
-{
-    return m_up;
-}
-
-const QQuaternion& Camera::orientation() const
-{
-    return m_orientation;
-}
-
 QVector3D Camera::forward() const
 {
-    return m_orientation.rotatedVector(QVector3D(0.0f, 0.0f, -1.0f)).normalized();
+    return m_orientation.rotatedVector(QVector3D(0.0f, 0.0f, -1.0f));
 }
 
 QVector3D Camera::right() const
 {
-    return m_orientation.rotatedVector(QVector3D(1.0f, 0.0f, 0.0f)).normalized();
+    return m_orientation.rotatedVector(QVector3D(1.0f, 0.0f, 0.0f));
 }
 
-QVector3D Camera::viewUp() const
+QVector3D Camera::up() const
 {
-    return m_orientation.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f)).normalized();
+    return m_orientation.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f));
 }
 
-float Camera::distanceToTarget() const
-{
-    return (m_position - m_target).length();
-}
-
-bool Camera::setView(const QVector3D& position, const QVector3D& target, const QVector3D& up)
-{
-    const QVector3D viewDirection = target - position;
-
-    // 1e-8 用于避免零长度方向参与 Normalize 和 Cross Product。
-    const float directionEpsilon = 1.0e-8f;
-
-    if (viewDirection.lengthSquared() <= directionEpsilon)
-    {
-        qWarning() << "Camera setView failed: position and target cannot be the same:" << m_name;
-        return false;
-    }
-
-    if (up.lengthSquared() <= directionEpsilon)
-    {
-        qWarning() << "Camera setView failed: up vector cannot be zero:" << m_name;
-        return false;
-    }
-
-    const QVector3D normalizedForward = viewDirection.normalized();
-    QVector3D normalizedRight = QVector3D::crossProduct(normalizedForward, up.normalized());
-
-    if (normalizedRight.lengthSquared() <= directionEpsilon)
-    {
-        qWarning() << "Camera setView failed: up vector cannot be parallel to view direction:" << m_name;
-        return false;
-    }
-
-    normalizedRight.normalize();
-    const QVector3D normalizedUp = QVector3D::crossProduct(normalizedRight, normalizedForward).normalized();
-    const QVector3D normalizedBackward = -normalizedForward;
-
-    // Camera Local Basis:
-    // +X = Right, +Y = Up, +Z = Backward，因此 Local Forward 固定为 -Z。
-    // 将三个世界空间基础轴作为旋转矩阵列向量，再转换为四元数保存完整姿态。
-    QMatrix3x3 rotationMatrix;
-    rotationMatrix(0, 0) = normalizedRight.x();
-    rotationMatrix(1, 0) = normalizedRight.y();
-    rotationMatrix(2, 0) = normalizedRight.z();
-
-    rotationMatrix(0, 1) = normalizedUp.x();
-    rotationMatrix(1, 1) = normalizedUp.y();
-    rotationMatrix(2, 1) = normalizedUp.z();
-
-    rotationMatrix(0, 2) = normalizedBackward.x();
-    rotationMatrix(1, 2) = normalizedBackward.y();
-    rotationMatrix(2, 2) = normalizedBackward.z();
-
-    m_position = position;
-    m_target = target;
-    m_orientation = QQuaternion::fromRotationMatrix(rotationMatrix).normalized();
-    m_up = m_orientation.rotatedVector(QVector3D(0.0f, 1.0f, 0.0f)).normalized();
-    return true;
-}
-
-
-/// Picking Ray
-
-bool Camera::screenPointToRay(int screenX, int screenY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const
-{
-    if (viewportWidth <= 0 || viewportHeight <= 0)
-    {
-        qWarning() << "Camera screenPointToRay failed: viewport size is invalid:" << m_name;
-        return false;
-    }
-
-    // Qt Widget 像素原点位于左上角，而 OpenGL NDC 的 Y 正方向向上。
-    const float normalizedX = static_cast<float>(screenX) / static_cast<float>(viewportWidth);
-    const float normalizedY = static_cast<float>(screenY) / static_cast<float>(viewportHeight);
-    const float ndcX = normalizedX * 2.0f - 1.0f;
-    const float ndcY = 1.0f - normalizedY * 2.0f;
-    const float aspect = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
-
-    bool invertible = false;
-    const QMatrix4x4 inverseViewProjection = (projectionMatrix(aspect) * viewMatrix()).inverted(&invertible);
-
-    if (!invertible)
-    {
-        qWarning() << "Camera screenPointToRay failed: view-projection matrix is not invertible:" << m_name;
-        return false;
-    }
-
-    QVector4D nearPoint = inverseViewProjection * QVector4D(ndcX, ndcY, -1.0f, 1.0f);
-    QVector4D farPoint = inverseViewProjection * QVector4D(ndcX, ndcY, 1.0f, 1.0f);
-
-    const float homogeneousEpsilon = 1.0e-8f;
-
-    if (qAbs(nearPoint.w()) <= homogeneousEpsilon || qAbs(farPoint.w()) <= homogeneousEpsilon)
-    {
-        qWarning() << "Camera screenPointToRay failed: unprojected homogeneous coordinate is invalid:" << m_name;
-        return false;
-    }
-
-    nearPoint /= nearPoint.w();
-    farPoint /= farPoint.w();
-
-    const QVector3D nearWorld = nearPoint.toVector3D();
-    const QVector3D farWorld = farPoint.toVector3D();
-
-    // 透视相机的所有 Picking Ray 从 Camera Position 发出；正交相机则从对应像素的 Near Plane 点发出。
-    rayOrigin = m_projectionType == CameraProjectionPerspective ? m_position : nearWorld;
-    rayDirection = farWorld - rayOrigin;
-
-    if (rayDirection.lengthSquared() <= homogeneousEpsilon)
-    {
-        qWarning() << "Camera screenPointToRay failed: generated ray direction is zero:" << m_name;
-        return false;
-    }
-
-    rayDirection.normalize();
-    return true;
-}
-
-/// 透视投影
-
-float Camera::fieldOfView() const
-{
-    return m_fieldOfView;
-}
-
-bool Camera::setPerspective(float fieldOfView, float nearPlane, float farPlane)
-{
-    // FOV 接近 0 或 180 度时透视矩阵会趋于退化，因此限制在有效开区间内。
-    if (fieldOfView <= 0.0f || fieldOfView >= 180.0f)
-    {
-        qWarning() << "Camera setPerspective failed: fieldOfView must be between 0 and 180 degrees:" << m_name;
-        return false;
-    }
-
-    if (nearPlane <= 0.0f || farPlane <= nearPlane)
-    {
-        qWarning() << "Camera setPerspective failed: projection planes are invalid:" << m_name;
-        return false;
-    }
-
-    m_projectionType = CameraProjectionPerspective;
-    m_fieldOfView = fieldOfView;
-    m_nearPlane = nearPlane;
-    m_farPlane = farPlane;
-    return true;
-}
-
-/// 正交投影
-
-float Camera::orthographicHeight() const
-{
-    return m_orthographicHeight;
-}
-
-bool Camera::setOrthographic(float height, float nearPlane, float farPlane)
-{
-    if (height <= 0.0f)
-    {
-        qWarning() << "Camera setOrthographic failed: height must be greater than zero:" << m_name;
-        return false;
-    }
-
-    if (nearPlane <= 0.0f || farPlane <= nearPlane)
-    {
-        qWarning() << "Camera setOrthographic failed: projection planes are invalid:" << m_name;
-        return false;
-    }
-
-    m_projectionType = CameraProjectionOrthographic;
-    m_orthographicHeight = height;
-    m_nearPlane = nearPlane;
-    m_farPlane = farPlane;
-    return true;
-}
-
-/// 公共投影参数
-
-float Camera::nearPlane() const
-{
-    return m_nearPlane;
-}
-
-float Camera::farPlane() const
-{
-    return m_farPlane;
-}
-
-/// 矩阵
-
-QMatrix4x4 Camera::viewMatrix() const
-{
-    QMatrix4x4 matrix;
-    matrix.lookAt(m_position, m_target, viewUp());
-    return matrix;
-}
 
 QMatrix4x4 Camera::projectionMatrix(float aspect) const
 {
-    QMatrix4x4 matrix;
+    QMatrix4x4 projection;
 
     if (aspect <= 0.0f)
+        return projection;
+
+    switch (m_type)
     {
-        qWarning() << "Camera projectionMatrix failed: aspect must be greater than zero:" << m_name;
-        return matrix;
+    case ProjectionType::Perspective:
+        projection.perspective(
+            m_perspectiveFieldOfView,
+            aspect,
+            m_perspectiveNearPlane,
+            m_perspectiveFarPlane);
+        break;
+
+    case ProjectionType::Parallel:
+    {
+        const float halfHeight = m_parallelHeight * 0.5f;
+        const float halfWidth = halfHeight * aspect;
+
+        projection.ortho(
+            -halfWidth,
+             halfWidth,
+            -halfHeight,
+             halfHeight,
+             m_parallelNearPlane,
+             m_parallelFarPlane);
+        break;
+    }
     }
 
-    if (m_projectionType == CameraProjectionPerspective)
-    {
-        matrix.perspective(m_fieldOfView, aspect, m_nearPlane, m_farPlane);
-        return matrix;
-    }
-
-    const float halfHeight = m_orthographicHeight * 0.5f;
-    const float halfWidth = halfHeight * aspect;
-    matrix.ortho(-halfWidth, halfWidth, -halfHeight, halfHeight, m_nearPlane, m_farPlane);
-    return matrix;
+    return projection;
 }
 
-/// CameraManager 内部接口
-
-void Camera::setId(CameraId id)
+bool Camera::screenToCamera(float screenPointX, float screenPointY, float depth, int viewportWidth, int viewportHeight, QVector3D& cameraPoint)  const
 {
-    m_id = id;
+    if (viewportWidth <= 0 || viewportHeight <= 0 || depth < 0.0f || depth > 1.0f)
+        return false;
+
+    const float ndcX = screenPointX / viewportWidth * 2.0f - 1.0f;
+    const float ndcY = 1.0f - screenPointY / viewportHeight * 2.0f;
+    const float ndcZ = depth * 2.0f - 1.0f;
+    const float aspect = static_cast<float>(viewportWidth) / viewportHeight;
+
+    bool invertible = false;
+    const QMatrix4x4 inverseProjection = projectionMatrix(aspect).inverted(&invertible);
+
+    if (!invertible)
+        return false;
+
+    QVector4D point = inverseProjection * QVector4D(ndcX, ndcY, ndcZ, 1.0f);
+
+    if (qAbs(point.w()) <= 1.0e-8f)
+        return false;
+
+    point /= point.w();
+    cameraPoint = point.toVector3D();
+    return true;
+}
+bool Camera::cameraToScreen(const QVector3D& cameraPoint, int viewportWidth, int viewportHeight, float& screenPointX, float& screenPointY, float& depth) const
+{
+    if (viewportWidth <= 0 || viewportHeight <= 0)
+        return false;
+
+    const float aspect = static_cast<float>(viewportWidth) / viewportHeight;
+    const QVector4D clipPoint = projectionMatrix(aspect) * QVector4D(cameraPoint, 1.0f);
+
+    if (qAbs(clipPoint.w()) <= 1.0e-8f)
+        return false;
+
+    const QVector3D ndcPoint = clipPoint.toVector3D() / clipPoint.w();
+
+    screenPointX = (ndcPoint.x() * 0.5f + 0.5f) * viewportWidth;
+    screenPointY = (1.0f - (ndcPoint.y() * 0.5f + 0.5f)) * viewportHeight;
+    depth = ndcPoint.z() * 0.5f + 0.5f;
+
+    return true;
+}
+bool Camera::screenPointToRay(float screenPointX, float screenPointY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const
+{
+    QVector3D nearCameraPoint;
+    QVector3D farCameraPoint;
+
+    if (!screenToCamera(screenPointX, screenPointY, 0.0f, viewportWidth, viewportHeight, nearCameraPoint))
+        return false;
+
+    if (!screenToCamera(screenPointX, screenPointY, 1.0f, viewportWidth, viewportHeight, farCameraPoint))
+        return false;
+
+    const QMatrix4x4 matrix = cameraMatrix();
+    const QVector3D nearWorldPoint = (matrix * QVector4D(nearCameraPoint, 1.0f)).toVector3D();
+    const QVector3D farWorldPoint = (matrix * QVector4D(farCameraPoint, 1.0f)).toVector3D();
+
+    if (m_type == ProjectionType::Perspective)
+        rayOrigin = m_position;
+    else
+        rayOrigin = nearWorldPoint;
+
+    rayDirection = farWorldPoint - rayOrigin;
+
+    if (rayDirection.lengthSquared() <= 1.0e-12f)
+        return false;
+
+    rayDirection.normalize();
+    return true;
 }

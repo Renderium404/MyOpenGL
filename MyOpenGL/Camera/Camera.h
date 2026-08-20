@@ -15,75 +15,91 @@ typedef unsigned int CameraId;
 const CameraId InvalidCameraId = 0;
 
 /// 相机投影类型。
-/// 描述当前 Camera 使用透视投影还是正交投影。
-enum CameraProjectionType
+enum class ProjectionType
 {
-    CameraProjectionPerspective,   // 透视投影，物体随距离增加而缩小。
-    CameraProjectionOrthographic   // 正交投影，物体显示尺寸不随距离变化。
+    Perspective, // 透视投影：具有近大远小的透视效果。
+    Parallel     // 平行投影：物体显示尺寸不随观察距离变化。
 };
-
-/// 获取相机投影类型的调试名称。
-const char* cameraProjectionTypeName(CameraProjectionType type);
-
 /// 单个相机状态。
-/// 使用四元数保存完整观察姿态，同时保存 Position / Target 和投影参数，并负责生成 View / Projection Matrix。
+/// 保存 Camera 在世界坐标中的观察姿态，以及透视和平行两套独立投影参数。
 class Camera
 {
+    friend class CameraManager;
 public:
-    explicit Camera(const QString& name = "Camera");
+    Camera();
+    ~Camera(){}
+    CameraId id() const { return m_id; }
+    QString name() const { return m_name; }
 
-    /// 相机基本信息
-    CameraId id() const;
-    const QString& name() const;
-    CameraProjectionType projectionType() const;
+    QString type() const;
+    ProjectionType projectionType() const { return m_type; }
+    // 设置相机矩阵：Camera Local -> World。
+    bool setCamera(const QMatrix4x4& matrix);
+    bool setCamera(const QVector3D& position, const QQuaternion& orientation);
+    // 设置透视投影参数，并切换到透视投影。
+    bool setPerspective(float fieldOfView, float nearPlane, float farPlane);
+    // 设置平行投影参数，并切换到平行投影。
+    bool setParallel(float height, float nearPlane, float farPlane);
 
-    /// 观察状态
-    const QVector3D& position() const;
-    const QVector3D& target() const;
-    const QVector3D& up() const;       // 获取当前实际视图 Up 方向，保持旧接口兼容。
-    const QQuaternion& orientation() const; // 获取 Camera Local -> World 的完整四元数姿态。
-    QVector3D forward() const;          // 获取当前四元数姿态对应的单位 Forward；Camera Local Forward = -Z。
-    QVector3D right() const;            // 获取当前四元数姿态对应的单位 Right；Camera Local Right = +X。
-    QVector3D viewUp() const;           // 获取当前四元数姿态对应的单位 Up；Camera Local Up = +Y。
-    float distanceToTarget() const;
-    bool setView(const QVector3D& position, const QVector3D& target, const QVector3D& up); // 同时设置观察状态并检查方向是否合法。
-
-    /// Picking Ray
-    bool screenPointToRay(int screenX, int screenY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const; // 将 Widget 像素坐标转换为当前 Camera 的世界空间 Picking Ray。
-
-    /// 透视投影
-    float fieldOfView() const;
-    bool setPerspective(float fieldOfView, float nearPlane, float farPlane); // 设置垂直 FOV、Near 和 Far，并切换到透视投影。
-
-    /// 正交投影
-    float orthographicHeight() const;
-    bool setOrthographic(float height, float nearPlane, float farPlane); // 设置可视区域高度、Near 和 Far，并切换到正交投影。
-
-    /// 公共投影参数
-    float nearPlane() const;
-    float farPlane() const;
-
-    /// 矩阵
+    
+    // 相机矩阵：把相机局部坐标转换到世界坐标。
+    QMatrix4x4 cameraMatrix() const;
+    // 视图矩阵：把世界坐标转换到相机局部坐标。
     QMatrix4x4 viewMatrix() const;
+    //投影矩阵，将基于相机坐标系的点转换到屏幕上
     QMatrix4x4 projectionMatrix(float aspect) const;
 
-private:
-    friend class CameraManager;
+    // 将屏幕像素坐标和深度值逆投影到相机坐标系。
+    // depth 范围为 [0,1]：0 表示 Near Plane，1 表示 Far Plane。
+    bool screenToCamera(float screenPointX, float screenPointY, float depth, int viewportWidth, int viewportHeight, QVector3D& cameraPoint) const;
+    // 将相机坐标系中的点投影到屏幕像素坐标。
+    // depth 范围为 [0,1]：0 表示 Near Plane，1 表示 Far Plane。
+    bool cameraToScreen(const QVector3D& cameraPoint, int viewportWidth, int viewportHeight, float& screenPointX, float& screenPointY, float& depth) const;
+    // 将屏幕像素位置转换为世界坐标系 Picking Ray。
+    bool screenPointToRay(float screenPointX, float screenPointY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const;
+    
+    //相机平面/你的视角为X_Y平面 ，你站在相机坐标系原点，头顶方向为Y轴，右手方向为X轴，则你的正前方为-Z轴
+    QVector3D forward() const;
+    QVector3D right() const;
+    QVector3D up() const;
+    const QVector3D& position() const { return m_position; }
+    const QQuaternion& orientation() const { return m_orientation; }
+    float perspectiveFieldOfView() const { return m_perspectiveFieldOfView; }
+    float parallelHeight() const { return m_parallelHeight; }
+    float nearPlane() const
+    {
+        return m_type == ProjectionType::Perspective ? m_perspectiveNearPlane : m_parallelNearPlane;
+    }
 
-    void setId(CameraId id); // 仅允许 CameraManager 设置相机 ID。
-
+    float farPlane() const
+    {
+        return m_type == ProjectionType::Perspective ? m_perspectiveFarPlane : m_parallelFarPlane;
+    }
 private:
-    CameraId m_id;                           // 当前相机唯一标识，未注册时为 InvalidCameraId。
-    QString m_name;                          // 当前相机调试名称。
-    CameraProjectionType m_projectionType;   // 当前相机投影类型。
-    QVector3D m_position;                    // 当前相机在世界坐标中的位置。
-    QVector3D m_target;                      // 当前相机观察目标点。
-    QVector3D m_up;                          // 当前四元数姿态对应的实际 View Up，供旧引用接口返回。
-    QQuaternion m_orientation;                // Camera Local -> World 完整旋转姿态，避免欧拉角和极点锁定。
-    float m_fieldOfView;                     // 透视投影垂直视场角，单位为度。
-    float m_orthographicHeight;              // 正交投影视口在世界坐标中的可视高度。
-    float m_nearPlane;                       // 当前投影 Near Plane 距离。
-    float m_farPlane;                        // 当前投影 Far Plane 距离。
+    void setId(CameraId id){m_id=id;}
+    void setName(QString name){m_name=name;}
+    void setType(ProjectionType type){m_type=type;};
+private:
+    ///相机基本信息
+    CameraId m_id;      
+    QString m_name;
+
+    ///用于确定唯一的相机坐标系
+    QVector3D m_position;       //位置
+    QQuaternion m_orientation;  //姿态
+
+    /// 投影类型
+    ProjectionType m_type;
+
+    /// 透视信息，用于计算透视投影矩阵
+    float m_perspectiveFieldOfView;
+    float m_perspectiveNearPlane;
+    float m_perspectiveFarPlane;
+
+    /// 平行信息，用于计算平行投影矩阵
+    float m_parallelHeight;
+    float m_parallelNearPlane;
+    float m_parallelFarPlane;
 };
 
 #endif // CAMERA_H

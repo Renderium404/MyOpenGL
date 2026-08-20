@@ -1,9 +1,18 @@
 #include "RenderItem.h"
 
 #include <QDebug>
+#include <QVector4D>
 
 #include <algorithm>
+#include <cfloat>
 #include <set>
+
+RenderItemRayHit::RenderItemRayHit()
+    : partId(DefaultRenderPartId)
+    , distance(0.0f)
+    , position(0.0f, 0.0f, 0.0f)
+{
+}
 
 const char* renderItemDisplayModeName(RenderItemDisplayMode mode)
 {
@@ -11,8 +20,10 @@ const char* renderItemDisplayModeName(RenderItemDisplayMode mode)
     {
     case RenderItemDisplayShaded:
         return "Shaded";
+
     case RenderItemDisplayWireframe:
         return "Wireframe";
+
     case RenderItemDisplayShadedWithEdges:
         return "ShadedWithEdges";
     }
@@ -42,7 +53,7 @@ const QString& RenderItem::name() const
     return m_name;
 }
 
-/// Part 所有权
+/// Part 管理
 
 RenderPart* RenderItem::createPart(RenderPartId id)
 {
@@ -55,8 +66,10 @@ RenderPart* RenderItem::createPart(RenderPartId id)
     }
 
     RenderPart* result = new RenderPart(id);
+
     m_parts.push_back(result);
     m_partsById[id] = result;
+
     return result;
 }
 
@@ -65,12 +78,7 @@ bool RenderItem::removePart(RenderPartId id)
     std::map<RenderPartId, RenderPart*>::iterator mapIterator = m_partsById.find(id);
 
     if (mapIterator == m_partsById.end())
-    {
-        qWarning() << "RenderItem removePart failed: PartId does not exist:"
-                   << "Item=" << m_name
-                   << "PartId=" << static_cast<qulonglong>(id);
         return false;
-    }
 
     RenderPart* target = mapIterator->second;
     std::vector<RenderPart*>::iterator vectorIterator = std::find(m_parts.begin(), m_parts.end(), target);
@@ -85,14 +93,16 @@ bool RenderItem::removePart(RenderPartId id)
 
     m_parts.erase(vectorIterator);
     m_partsById.erase(mapIterator);
+
     delete target;
+
     return true;
 }
 
 void RenderItem::clearParts()
 {
-    for (std::size_t index = 0; index < m_parts.size(); ++index)
-        delete m_parts[index];
+    for (std::size_t i = 0; i < m_parts.size(); ++i)
+        delete m_parts[i];
 
     m_parts.clear();
     m_partsById.clear();
@@ -107,12 +117,7 @@ int RenderItem::partCount() const
 RenderPart* RenderItem::partAt(int index)
 {
     if (index < 0 || index >= static_cast<int>(m_parts.size()))
-    {
-        qWarning() << "RenderItem partAt failed: index is out of range:"
-                   << "Item=" << m_name
-                   << "Index=" << index;
         return 0;
-    }
 
     return m_parts[static_cast<std::size_t>(index)];
 }
@@ -120,26 +125,21 @@ RenderPart* RenderItem::partAt(int index)
 const RenderPart* RenderItem::partAt(int index) const
 {
     if (index < 0 || index >= static_cast<int>(m_parts.size()))
-    {
-        qWarning() << "RenderItem partAt failed: index is out of range:"
-                   << "Item=" << m_name
-                   << "Index=" << index;
         return 0;
-    }
 
     return m_parts[static_cast<std::size_t>(index)];
 }
 
 RenderPart* RenderItem::part(RenderPartId id)
 {
-    std::map<RenderPartId, RenderPart*>::iterator iterator = m_partsById.find(id);
-    return iterator == m_partsById.end() ? 0 : iterator->second;
+    std::map<RenderPartId, RenderPart*>::iterator it = m_partsById.find(id);
+    return it != m_partsById.end() ? it->second : 0;
 }
 
 const RenderPart* RenderItem::part(RenderPartId id) const
 {
-    std::map<RenderPartId, RenderPart*>::const_iterator iterator = m_partsById.find(id);
-    return iterator == m_partsById.end() ? 0 : iterator->second;
+    std::map<RenderPartId, RenderPart*>::const_iterator it = m_partsById.find(id);
+    return it != m_partsById.end() ? it->second : 0;
 }
 
 /// Part Update
@@ -148,6 +148,7 @@ bool RenderItem::applyPartUpdate(const RenderPartUpdate& update)
 {
     std::vector<RenderPartUpdate> updates;
     updates.push_back(update);
+
     return applyPartUpdates(updates);
 }
 
@@ -156,43 +157,37 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
     if (updates.empty())
         return true;
 
-    // 批量提交先验证全部命令和 PartId 唯一性，避免输入错误导致 Item 只应用一半状态。
     std::set<RenderPartId> updatedPartIds;
 
-    for (std::size_t index = 0; index < updates.size(); ++index)
+    for (std::size_t i = 0; i < updates.size(); ++i)
     {
-        const RenderPartUpdate& update = updates[index];
+        const RenderPartUpdate& update = updates[i];
 
         if (!update.isValid())
         {
             qWarning() << "RenderItem applyPartUpdates failed: invalid RenderPartUpdate:"
                        << "Item=" << m_name
-                       << "PartId=" << static_cast<qulonglong>(update.partId)
-                       << "Operation=" << static_cast<int>(update.operation);
+                       << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
 
         if (!updatedPartIds.insert(update.partId).second)
         {
-            qWarning() << "RenderItem applyPartUpdates failed: duplicate PartId in one batch:"
+            qWarning() << "RenderItem applyPartUpdates failed: duplicate PartId:"
                        << "Item=" << m_name
                        << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
     }
 
-    for (std::size_t index = 0; index < updates.size(); ++index)
+    for (std::size_t i = 0; i < updates.size(); ++i)
     {
-        const RenderPartUpdate& update = updates[index];
+        const RenderPartUpdate& update = updates[i];
 
         if (update.operation == RenderPartUpdateRemove)
         {
-            // Update 层的 Remove 是状态命令；目标 Part 已不存在时已经达到期望状态，因此不产生 Warning。
-            if (part(update.partId) != 0)
-            {
-                if (!removePart(update.partId))
-                    return false;
-            }
+            if (part(update.partId) != 0 && !removePart(update.partId))
+                return false;
 
             continue;
         }
@@ -207,44 +202,11 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
                 return false;
         }
 
-        // Geometry Replace 只接受最小基础数据。
-        // 旧 Picker / Bounds 与新 Geometry 可能不再匹配，因此在替换时主动清除；需要这些能力的调用方可随后按需重新绑定。
         targetPart->setGeometry(update.geometry);
-        targetPart->setPrimitivePickSource(0);
-        targetPart->clearLocalBounds();
+        targetPart->setLocalBounds(update.localBounds);
     }
 
     return true;
-}
-
-/// 旧单 Geometry 兼容接口
-
-const Geometry* RenderItem::geometry() const
-{
-    const RenderPart* defaultPart = part(DefaultRenderPartId);
-    return defaultPart != 0 ? defaultPart->geometry() : 0;
-}
-
-void RenderItem::setGeometry(const Geometry* geometry)
-{
-    RenderPart* defaultPart = ensureDefaultPart();
-
-    if (defaultPart != 0)
-        defaultPart->setGeometry(geometry);
-}
-
-const PrimitivePickSource* RenderItem::primitivePickSource() const
-{
-    const RenderPart* defaultPart = part(DefaultRenderPartId);
-    return defaultPart != 0 ? defaultPart->primitivePickSource() : 0;
-}
-
-void RenderItem::setPrimitivePickSource(const PrimitivePickSource* source)
-{
-    RenderPart* defaultPart = ensureDefaultPart();
-
-    if (defaultPart != 0)
-        defaultPart->setPrimitivePickSource(source);
 }
 
 /// Material
@@ -285,22 +247,6 @@ const AxisAlignedBoundingBox& RenderItem::localBounds() const
     return m_localBoundsCache;
 }
 
-void RenderItem::setLocalBounds(const AxisAlignedBoundingBox& bounds)
-{
-    RenderPart* defaultPart = ensureDefaultPart();
-
-    if (defaultPart != 0)
-        defaultPart->setLocalBounds(bounds);
-}
-
-void RenderItem::clearLocalBounds()
-{
-    RenderPart* defaultPart = part(DefaultRenderPartId);
-
-    if (defaultPart != 0)
-        defaultPart->clearLocalBounds();
-}
-
 AxisAlignedBoundingBox RenderItem::worldBounds() const
 {
     rebuildLocalBoundsCache();
@@ -311,7 +257,76 @@ AxisAlignedBoundingBox RenderItem::worldBounds() const
     return m_localBoundsCache.transformed(m_transform.matrix());
 }
 
-/// 显示状态
+/// Item Interaction
+
+bool RenderItem::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const
+{
+    hit = RenderItemRayHit();
+
+    if (rayDirection.lengthSquared() <= 1.0e-12f)
+        return false;
+
+    const QVector3D worldDirection = rayDirection.normalized();
+    const QMatrix4x4 model = m_transform.matrix();
+
+    bool invertible = false;
+    const QMatrix4x4 inverseModel = model.inverted(&invertible);
+
+    if (!invertible)
+        return false;
+
+    const QVector3D localOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
+    const QVector3D localSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
+
+    QVector3D localDirection = localSecondPoint - localOrigin;
+
+    if (localDirection.lengthSquared() <= 1.0e-12f)
+        return false;
+
+    localDirection.normalize();
+
+    bool found = false;
+    float nearestDistance = FLT_MAX;
+
+    for (std::size_t i = 0; i < m_parts.size(); ++i)
+    {
+        const RenderPart* currentPart = m_parts[i];
+
+        if (currentPart == 0 || !currentPart->hasLocalBounds())
+            continue;
+
+        float localDistance = 0.0f;
+
+        if (!currentPart->localBounds().intersectRay(localOrigin, localDirection, localDistance))
+            continue;
+
+        const QVector3D localPosition = localOrigin + localDirection * localDistance;
+        const QVector3D worldPosition = (model * QVector4D(localPosition, 1.0f)).toVector3D();
+
+        float worldDistance = QVector3D::dotProduct(worldPosition - rayOrigin, worldDirection);
+
+        if (worldDistance < -1.0e-6f)
+            continue;
+
+        if (worldDistance < 0.0f)
+            worldDistance = 0.0f;
+
+        if (worldDistance >= nearestDistance)
+            continue;
+
+        nearestDistance = worldDistance;
+
+        hit.partId = currentPart->id();
+        hit.distance = worldDistance;
+        hit.position = worldPosition;
+
+        found = true;
+    }
+
+    return found;
+}
+
+/// Display
 
 bool RenderItem::isVisible() const
 {
@@ -365,29 +380,13 @@ void RenderItem::setDepthTestEnabled(bool enabled)
 
 /// 内部辅助
 
-RenderPart* RenderItem::ensureDefaultPart()
-{
-    RenderPart* result = part(DefaultRenderPartId);
-
-    if (result != 0)
-        return result;
-
-    result = createPart(DefaultRenderPartId);
-
-    // Default Part 创建不可能与自身重复；若内部状态损坏，后续旧接口无法安全继续。
-    if (result == 0)
-        qWarning() << "RenderItem ensureDefaultPart failed:" << m_name;
-
-    return result;
-}
-
 void RenderItem::rebuildLocalBoundsCache() const
 {
     m_localBoundsCache.reset();
 
-    for (std::size_t index = 0; index < m_parts.size(); ++index)
+    for (std::size_t i = 0; i < m_parts.size(); ++i)
     {
-        const RenderPart* currentPart = m_parts[index];
+        const RenderPart* currentPart = m_parts[i];
 
         if (currentPart != 0 && currentPart->hasLocalBounds())
             m_localBoundsCache.expandToInclude(currentPart->localBounds());

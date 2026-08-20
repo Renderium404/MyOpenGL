@@ -6,30 +6,42 @@
 #include "Transform.h"
 
 #include <QString>
+#include <QVector3D>
 #include <QVector4D>
 
 #include <map>
 #include <vector>
 
-class Geometry;
 class Material;
-class PrimitivePickSource;
 
-/// RenderItem 显示模式。
-/// 只描述用户对象的表面显示方式，不改变 Geometry Topology、Material 或 Picking 数据。
+/// RenderItem 的整体显示模式。
+/// 当前作用于整个 Item，不改变 RenderPart 的 Geometry 数据和交互身份。
 enum RenderItemDisplayMode
 {
-    RenderItemDisplayShaded,         // 使用当前 Material 正常绘制。
-    RenderItemDisplayWireframe,      // Triangle Geometry 只绘制统一颜色线框。
-    RenderItemDisplayShadedWithEdges // 先按 Material 绘制表面，再叠加统一颜色三角形边线。
+    RenderItemDisplayShaded,         // 按当前 Material 正常绘制。
+    RenderItemDisplayWireframe,      // Triangle Geometry 以统一边线形式绘制。
+    RenderItemDisplayShadedWithEdges // 先绘制表面，再叠加统一边线。
 };
 
-/// 获取 RenderItem 显示模式的调试名称。
+/// 返回 RenderItemDisplayMode 的调试名称。
 const char* renderItemDisplayModeName(RenderItemDisplayMode mode);
 
-/// 用户 Scene 中一个可操作的可绘制对象实例。
-/// RenderItem 拥有 RenderPart 组织结构，但不拥有 Part 引用的 Geometry / PrimitivePickSource，也不拥有 Material。
-/// Transform、Visibility、DisplayMode 和 Material 仍属于整个用户对象；一个 Item 可以包含多个独立替换的 RenderPart。
+/// 一次 RenderItem Bounds Raycast 的最近命中结果。
+/// RenderPart 是 Item 内最小用户交互模型单位，因此命中结果明确返回 PartId。
+/// distance 为 World Ray Origin 到命中点的世界空间前向距离；position 为世界空间命中坐标。
+struct RenderItemRayHit
+{
+    RenderItemRayHit();
+
+    RenderPartId partId; // 命中的 RenderPart 稳定标识。
+    float distance;      // World Space Ray Distance。
+    QVector3D position;  // World Space Hit Position。
+};
+
+/// Scene 中一个完整的模型对象实例。
+/// RenderItem 拥有并组织多个 RenderPart；RenderPart 是 Item 内具有稳定身份的最小用户交互模型单位。
+/// Item 自身统一保存 Transform、Material 和整体显示状态。
+/// RenderItem 不拥有 RenderPart 引用的 Geometry，也不拥有 Material。
 class RenderItem
 {
 public:
@@ -37,69 +49,117 @@ public:
     ~RenderItem();
 
     /// 基本信息
-    const QString& name() const;
+    const QString& name() const; // 返回 Item 的稳定调试名称。
 
-    /// Part 所有权
-    RenderPart* createPart(RenderPartId id); // 创建并接管一个空 RenderPart；同一 Item 内 PartId 必须唯一。
-    bool removePart(RenderPartId id);        // 删除指定 Part；不删除其借用的 Geometry / PrimitivePickSource。
-    void clearParts();                       // 删除全部 RenderPart。
+    /// Part 管理
+
+    /// 创建并接管一个新的 RenderPart。
+    /// 同一 RenderItem 内 RenderPartId 必须唯一；失败返回 0。
+    RenderPart* createPart(RenderPartId id);
+
+    /// 删除指定 RenderPart。
+    /// 只删除 RenderPart 本身，不删除其借用的 Geometry。
+    bool removePart(RenderPartId id);
+
+    /// 删除当前 Item 拥有的全部 RenderPart。
+    void clearParts();
+
+    /// 返回当前 RenderPart 数量。
     int partCount() const;
-    RenderPart* partAt(int index);           // 按创建顺序返回 Part。
+
+    /// 按创建顺序访问 RenderPart；索引非法时返回 0。
+    RenderPart* partAt(int index);
     const RenderPart* partAt(int index) const;
-    RenderPart* part(RenderPartId id);       // 按稳定 PartId 查询；不存在时返回 0。
+
+    /// 按稳定 RenderPartId 查询 RenderPart；不存在时返回 0。
+    RenderPart* part(RenderPartId id);
     const RenderPart* part(RenderPartId id) const;
 
     /// Part Update
-    bool applyPartUpdate(const RenderPartUpdate& update); // 应用一个 Geometry Replace / Remove；Replace 会清除该 Part 旧 Picker / Bounds。
-    bool applyPartUpdates(const std::vector<RenderPartUpdate>& updates); // 批量应用不同 PartId；先完整校验，失败时不修改 Item。
 
-    /// 旧单 Geometry 兼容接口
-    /// 这些接口统一映射到 PartId=DefaultRenderPartId，现有单 Geometry Item 无需修改。
-    const Geometry* geometry() const;
-    void setGeometry(const Geometry* geometry);
-    const PrimitivePickSource* primitivePickSource() const;
-    void setPrimitivePickSource(const PrimitivePickSource* source);
+    /// 应用一个 RenderPart 更新。
+    /// Replace 会创建或更新指定 PartId，并同时提交 Geometry 与 LocalBounds；
+    /// Remove 会删除指定 PartId。
+    bool applyPartUpdate(const RenderPartUpdate& update);
+
+    /// 批量应用 RenderPart 更新。
+    /// 在实际修改 Item 前先验证全部 Update，避免因非法输入形成部分更新状态。
+    bool applyPartUpdates(const std::vector<RenderPartUpdate>& updates);
 
     /// Material
+
+    /// 返回当前 Item 统一使用的 Material。
+    /// RenderItem 不拥有该对象。
     const Material* material() const;
-    void setMaterial(const Material* material); // Item 级 Material；当前全部 Part 共用，RenderItem 不拥有该对象。
+
+    /// 设置当前 Item 统一使用的 Material。
+    /// 传入对象由外部 MaterialManager 等模块管理生命周期。
+    void setMaterial(const Material* material);
 
     /// Transform
+
+    /// 返回 Item Transform。
+    /// 当前所有 RenderPart 共用同一个 Item Local -> World Transform。
     Transform& transform();
     const Transform& transform() const;
 
     /// Bounds
-    bool hasLocalBounds() const;
-    const AxisAlignedBoundingBox& localBounds() const; // 聚合全部具有有效 Bounds 的 Part。
-    void setLocalBounds(const AxisAlignedBoundingBox& bounds); // 兼容接口：设置 Default Part Bounds。
-    void clearLocalBounds();                                  // 兼容接口：清除 Default Part Bounds。
-    AxisAlignedBoundingBox worldBounds() const;                // 使用 Item Transform 将聚合 Local Bounds 转换为世界 AABB。
 
-    /// 显示状态
+    /// 当前 Item 是否至少存在一个具有有效 LocalBounds 的 RenderPart。
+    bool hasLocalBounds() const;
+
+    /// 返回全部 RenderPart LocalBounds 在 Item Local Space 中的聚合 AABB。
+    /// 该 Bounds 用于描述整个 Item 的局部空间范围，不代表单个 Part 的交互范围。
+    const AxisAlignedBoundingBox& localBounds() const;
+
+    /// 将聚合 LocalBounds 经过当前 Item Transform 后转换为 World Space AABB。
+    AxisAlignedBoundingBox worldBounds() const;
+
+    /// Item Interaction
+
+    /// 使用 World Space Ray 对当前 Item 的各 RenderPart LocalBounds 执行命中测试。
+    /// Ray 会先通过 Item Transform 转换到 Item Local Space；
+    /// 最终返回最近命中的 RenderPart，以及对应的世界空间距离和命中位置。
+    /// 当前只进行 Part Bounds 级命中，不执行 Triangle / Line / Vertex 精确 Picking。
+    bool raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
+
+    /// Display
+
+    /// 当前 Item 是否参与正常 Scene 绘制。
     bool isVisible() const;
     void setVisible(bool visible);
+
+    /// 返回或设置整个 Item 的显示模式。
     RenderItemDisplayMode displayMode() const;
-    bool setDisplayMode(RenderItemDisplayMode mode); // 设置整个 Item 的显示模式；非法枚举值会拒绝修改。
+    bool setDisplayMode(RenderItemDisplayMode mode);
+
+    /// Wireframe / ShadedWithEdges 模式下使用的统一边线颜色。
     const QVector4D& edgeColor() const;
-    void setEdgeColor(const QVector4D& color);        // Wireframe / ShadedWithEdges 使用的 Item 级统一 RGBA 边线颜色。
+    void setEdgeColor(const QVector4D& color);
+
+    /// 当前 Item 绘制时是否启用深度测试。
     bool depthTestEnabled() const;
-    void setDepthTestEnabled(bool enabled);           // 控制整个 Item 的基础 Depth Test；默认开启。
+    void setDepthTestEnabled(bool enabled);
 
 private:
-    RenderPart* ensureDefaultPart();                   // 返回或创建 PartId=0 的旧接口兼容 Part。
-    void rebuildLocalBoundsCache() const;              // 根据全部 Part Bounds 重建聚合缓存。
+    /// 根据全部具有有效 LocalBounds 的 RenderPart 重建 Item LocalBounds 聚合缓存。
+    void rebuildLocalBoundsCache() const;
 
 private:
-    QString m_name;                                   // 当前用户 Scene Item 调试名称。
-    std::vector<RenderPart*> m_parts;                 // RenderItem 拥有的 Part，创建顺序同时定义基础绘制顺序。
-    std::map<RenderPartId, RenderPart*> m_partsById;  // 稳定 PartId 到 RenderPart 的快速查询。
-    const Material* m_material;                       // 当前 Item 级借用 Material，不拥有该对象。
-    Transform m_transform;                            // 当前局部 Model Transform。
-    mutable AxisAlignedBoundingBox m_localBoundsCache;// 全部 Part Bounds 的聚合缓存，每次查询时重建以允许 Part 独立修改。
-    bool m_visible;                                   // 当前 Item 是否参与 Scene Draw。
-    RenderItemDisplayMode m_displayMode;              // 当前用户对象显示模式。
-    QVector4D m_edgeColor;                            // Wireframe / Edge Overlay 的统一颜色。
-    bool m_depthTestEnabled;                          // 当前 Item 绘制时是否启用 Depth Test。
+    QString m_name;                                  // Item 调试名称。
+
+    std::vector<RenderPart*> m_parts;                // Item 拥有的 RenderPart，保持创建顺序。
+    std::map<RenderPartId, RenderPart*> m_partsById; // RenderPartId 到 RenderPart 的快速查询。
+
+    const Material* m_material;                      // Item 级借用 Material，不拥有。
+    Transform m_transform;                           // Item Local -> World Transform。
+
+    mutable AxisAlignedBoundingBox m_localBoundsCache; // 全部 Part LocalBounds 的聚合缓存。
+
+    bool m_visible;                                  // 是否参与正常 Scene 绘制。
+    RenderItemDisplayMode m_displayMode;             // Item 整体显示模式。
+    QVector4D m_edgeColor;                           // Wireframe / Edge Overlay 颜色。
+    bool m_depthTestEnabled;                         // 是否启用 Depth Test。
 };
 
 #endif // RENDERITEM_H

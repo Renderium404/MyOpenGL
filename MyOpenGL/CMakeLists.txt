@@ -38,10 +38,6 @@ add_library(MyOpenGLCore STATIC
 
     Scene/AxisAlignedBoundingBox.cpp
     Scene/AxisAlignedBoundingBox.h
-    Scene/PrimitivePicking.cpp
-    Scene/PrimitivePicking.h
-    Scene/BufferGeometryPickSource.cpp
-    Scene/BufferGeometryPickSource.h
     Scene/Transform.cpp
     Scene/Transform.h
     Scene/RenderPart.cpp
@@ -53,8 +49,12 @@ add_library(MyOpenGLCore STATIC
     Scene/Scene.cpp
     Scene/Scene.h
 
+    Render/MyOpenGLContext.cpp
+    Render/MyOpenGLContext.h
     Render/RenderContext.cpp
     Render/RenderContext.h
+    Render/RenderState.cpp
+    Render/RenderState.h
     Render/ShaderProgram.cpp
     Render/ShaderProgram.h
     Render/Renderer.cpp
@@ -63,7 +63,7 @@ add_library(MyOpenGLCore STATIC
 
 target_include_directories(MyOpenGLCore
     PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 target_link_libraries(MyOpenGLCore
@@ -76,10 +76,17 @@ target_link_libraries(MyOpenGLCore
 # Qt Widgets Viewer
 # ============================================================
 
-# Core 保持不依赖 Qt Widgets；Viewer 自己拥有 Grid、Axis、ViewNavigation 等内部辅助几何。
+# Core 保持不依赖 Qt Widgets。
+# Viewer 负责窗口、输入、Scene 渲染编排以及后续 Grid、Axis、
+# ViewNavigation 等 Viewer 级系统显示对象。
 add_library(MyOpenGLViewer STATIC
     Viewer/OpenGLViewerWidget.cpp
     Viewer/OpenGLViewerWidget.h
+
+    Viewer/Modeling/SimpleModeling.cpp
+    Viewer/Modeling/SimpleModeling.h
+    Viewer/Modeling/PrimitiveMeshBuilder.cpp
+    Viewer/Modeling/PrimitiveMeshBuilder.h
 
     Viewer/Geometry/CoordinateSystemGeometry.cpp
     Viewer/Geometry/CoordinateSystemGeometry.h
@@ -87,11 +94,16 @@ add_library(MyOpenGLViewer STATIC
     Viewer/Geometry/GridPlaneGeometry.h
     Viewer/Geometry/ViewNavigationGeometry.cpp
     Viewer/Geometry/ViewNavigationGeometry.h
+
+    Viewer/System/CoordinateSystem.cpp
+    Viewer/System/CoordinateSystem.h
+    Viewer/System/ViewNavigation.cpp
+    Viewer/System/ViewNavigation.h
 )
 
 target_include_directories(MyOpenGLViewer
     PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
 )
 
 target_link_libraries(MyOpenGLViewer

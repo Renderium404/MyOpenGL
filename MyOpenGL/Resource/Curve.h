@@ -1,7 +1,7 @@
 #ifndef CURVE_H
 #define CURVE_H
 
-#include "Resource/BufferGeometry.h"
+#include "BufferGeometry.h"
 
 #include <QVector3D>
 

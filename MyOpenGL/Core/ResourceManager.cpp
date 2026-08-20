@@ -2,6 +2,12 @@
 
 #include <QDebug>
 
+ResourceEntry::ResourceEntry()
+    : resource(0)
+    , ownership(ResourceManagerOwned)
+{
+}
+
 ResourceManager::ResourceManager()
     : m_nextId(1)
 {
@@ -12,9 +18,21 @@ ResourceManager::~ResourceManager()
     clear();
 }
 
-/// Resource 所有权
+/// Resource 注册
 
 ResourceId ResourceManager::add(Resource* resource)
+{
+    return addInternal(resource, ResourceManagerOwned);
+}
+
+ResourceId ResourceManager::registerResource(Resource* resource)
+{
+    return addInternal(resource, ResourceExternalOwned);
+}
+
+ResourceId ResourceManager::addInternal(
+    Resource* resource,
+    ResourceOwnership ownership)
 {
     if (resource == 0)
     {
@@ -24,7 +42,11 @@ ResourceId ResourceManager::add(Resource* resource)
 
     if (resource->id() != InvalidResourceId)
     {
-        qWarning() << "ResourceManager add failed: resource already has an ID:" << resource->name();
+        qWarning()
+            << "ResourceManager add failed: resource already has an ID:"
+            << resource->name()
+            << resource->id();
+
         return InvalidResourceId;
     }
 
@@ -32,54 +54,158 @@ ResourceId ResourceManager::add(Resource* resource)
 
     if (id == InvalidResourceId)
     {
-        qWarning() << "ResourceManager add failed: unable to allocate ResourceId:" << resource->name();
+        qWarning()
+            << "ResourceManager add failed: unable to allocate ResourceId:"
+            << resource->name();
+
         return InvalidResourceId;
     }
 
+    ResourceEntry entry;
+    entry.resource = resource;
+    entry.ownership = ownership;
+
     resource->setId(id);
-    m_resources[id] = resource;
+    m_resources[id] = entry;
+
     return id;
 }
 
-bool ResourceManager::remove(ResourceId id, QOpenGLFunctions_3_3_Core* gl)
+/// Resource 移除
+
+bool ResourceManager::remove(
+    ResourceId id,
+    QOpenGLFunctions_3_3_Core* gl)
 {
-    std::map<ResourceId, Resource*>::iterator it = m_resources.find(id);
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.find(id);
 
     if (it == m_resources.end())
         return false;
 
-    Resource* resource = it->second;
+    const bool deleteResource =
+        it->second.ownership == ResourceManagerOwned;
+
+    return removeInternal(id, gl, deleteResource);
+}
+
+bool ResourceManager::unregisterResource(
+    ResourceId id,
+    QOpenGLFunctions_3_3_Core* gl)
+{
+    std::map<ResourceId, ResourceEntry>::iterator it =m_resources.find(id);
+
+    if (it == m_resources.end())
+        return false;
+
+    if (it->second.ownership != ResourceExternalOwned)
+    {
+        qWarning()
+            << "ResourceManager unregister failed:"
+            << "resource is owned by ResourceManager:"
+            << it->second.resource->name();
+
+        return false;
+    }
+
+    return removeInternal(id, gl, false);
+}
+
+bool ResourceManager::removeInternal(
+    ResourceId id,
+    QOpenGLFunctions_3_3_Core* gl,
+    bool deleteResource)
+{
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.find(id);
+
+    if (it == m_resources.end())
+        return false;
+
+    ResourceEntry entry = it->second;
+    Resource* resource = entry.resource;
+
+    if (resource == 0)
+    {
+        m_resources.erase(it);
+        return false;
+    }
 
     if (resource->isInitialized())
     {
         if (gl == 0)
         {
-            qWarning() << "ResourceManager remove failed: initialized resource requires OpenGL functions:" << resource->name();
+            qWarning()
+                << "ResourceManager remove failed:"
+                << "initialized resource requires OpenGL functions:"
+                << resource->name();
+
             return false;
         }
 
         if (!resource->releaseGL(gl))
+        {
+            qWarning()
+                << "ResourceManager remove failed:"
+                << "unable to release GPU state:"
+                << resource->name();
+
             return false;
+        }
     }
 
-    delete resource;
+    // Resource 已经不再属于当前 Manager，
+    // 因此必须恢复为 InvalidResourceId。
+    resource->setId(InvalidResourceId);
+
     m_resources.erase(it);
+
+    if (deleteResource)
+        delete resource;
+
     return true;
 }
 
 void ResourceManager::clear(QOpenGLFunctions_3_3_Core* gl)
 {
-    std::map<ResourceId, Resource*>::iterator it = m_resources.begin();
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.begin();
 
     while (it != m_resources.end())
     {
-        Resource* resource = it->second;
+        ResourceEntry entry = it->second;
+        Resource* resource = entry.resource;
 
-        if (resource->isInitialized() && gl != 0)
-            resource->releaseGL(gl);
-
-        delete resource;
         ++it;
+
+        if (resource == 0)
+            continue;
+
+        if (resource->isInitialized())
+        {
+            if (gl != 0)
+            {
+                if (!resource->releaseGL(gl))
+                {
+                    qWarning()
+                        << "ResourceManager clear:"
+                        << "unable to release GPU state:"
+                        << resource->name();
+                }
+            }
+            else
+            {
+                qWarning()
+                    << "ResourceManager clear:"
+                    << "initialized resource cannot release GPU state without OpenGL functions:"
+                    << resource->name();
+            }
+        }
+
+        resource->setId(InvalidResourceId);
+
+        if (entry.ownership == ResourceManagerOwned)
+            delete resource;
     }
 
     m_resources.clear();
@@ -90,22 +216,24 @@ void ResourceManager::clear(QOpenGLFunctions_3_3_Core* gl)
 
 Resource* ResourceManager::get(ResourceId id)
 {
-    std::map<ResourceId, Resource*>::iterator it = m_resources.find(id);
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.find(id);
 
     if (it == m_resources.end())
         return 0;
 
-    return it->second;
+    return it->second.resource;
 }
 
 const Resource* ResourceManager::get(ResourceId id) const
 {
-    std::map<ResourceId, Resource*>::const_iterator it = m_resources.find(id);
+    std::map<ResourceId, ResourceEntry>::const_iterator it =
+        m_resources.find(id);
 
     if (it == m_resources.end())
         return 0;
 
-    return it->second;
+    return it->second.resource;
 }
 
 bool ResourceManager::contains(ResourceId id) const
@@ -116,6 +244,37 @@ bool ResourceManager::contains(ResourceId id) const
 int ResourceManager::count() const
 {
     return static_cast<int>(m_resources.size());
+}
+
+ResourceOwnership ResourceManager::ownership(ResourceId id) const
+{
+    std::map<ResourceId, ResourceEntry>::const_iterator it =
+        m_resources.find(id);
+
+    if (it == m_resources.end())
+        return ResourceManagerOwned;
+
+    return it->second.ownership;
+}
+
+bool ResourceManager::isOwned(ResourceId id) const
+{
+    std::map<ResourceId, ResourceEntry>::const_iterator it =
+        m_resources.find(id);
+
+    return
+        it != m_resources.end() &&
+        it->second.ownership == ResourceManagerOwned;
+}
+
+bool ResourceManager::isBorrowed(ResourceId id) const
+{
+    std::map<ResourceId, ResourceEntry>::const_iterator it =
+        m_resources.find(id);
+
+    return
+        it != m_resources.end() &&
+        it->second.ownership == ResourceExternalOwned;
 }
 
 /// Dirty 状态
@@ -133,22 +292,32 @@ bool ResourceManager::markFullDirty(ResourceId id)
 
 void ResourceManager::markAllFullDirty()
 {
-    std::map<ResourceId, Resource*>::iterator it = m_resources.begin();
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.begin();
 
     while (it != m_resources.end())
     {
-        it->second->markFullDirty();
+        Resource* resource = it->second.resource;
+
+        if (resource != 0)
+            resource->markFullDirty();
+
         ++it;
     }
 }
 
 /// GPU 同步
 
-bool ResourceManager::syncResource(ResourceId id, QOpenGLFunctions_3_3_Core* gl)
+bool ResourceManager::syncResource(
+    ResourceId id,
+    QOpenGLFunctions_3_3_Core* gl)
 {
     if (gl == 0)
     {
-        qWarning() << "ResourceManager syncResource failed: OpenGL functions are null.";
+        qWarning()
+            << "ResourceManager syncResource failed:"
+            << "OpenGL functions are null.";
+
         return false;
     }
 
@@ -156,14 +325,23 @@ bool ResourceManager::syncResource(ResourceId id, QOpenGLFunctions_3_3_Core* gl)
 
     if (resource == 0)
     {
-        qWarning() << "ResourceManager syncResource failed: resource does not exist:" << id;
+        qWarning()
+            << "ResourceManager syncResource failed:"
+            << "resource does not exist:"
+            << id;
+
         return false;
     }
 
-    // External Resource 可在这里通过 Revision 检查刷新自己的 DirtyState。
+    // External Resource 可以在这里通过 Revision
+    // 检查并刷新自己的 DirtyState。
     if (!resource->prepareSync())
     {
-        qWarning() << "ResourceManager syncResource failed: resource preparation failed:" << resource->name();
+        qWarning()
+            << "ResourceManager syncResource failed:"
+            << "resource preparation failed:"
+            << resource->name();
+
         return false;
     }
 
@@ -182,19 +360,28 @@ bool ResourceManager::syncResource(ResourceId id, QOpenGLFunctions_3_3_Core* gl)
         return resource->updateFullGL(gl);
     }
 
-    qWarning() << "ResourceManager syncResource failed: invalid dirty state:" << resource->name();
+    qWarning()
+        << "ResourceManager syncResource failed:"
+        << "invalid dirty state:"
+        << resource->name();
+
     return false;
 }
 
-bool ResourceManager::syncAll(QOpenGLFunctions_3_3_Core* gl)
+bool ResourceManager::syncAll(
+    QOpenGLFunctions_3_3_Core* gl)
 {
     if (gl == 0)
     {
-        qWarning() << "ResourceManager syncAll failed: OpenGL functions are null.";
+        qWarning()
+            << "ResourceManager syncAll failed:"
+            << "OpenGL functions are null.";
+
         return false;
     }
 
-    std::map<ResourceId, Resource*>::iterator it = m_resources.begin();
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.begin();
 
     while (it != m_resources.end())
     {
@@ -207,22 +394,37 @@ bool ResourceManager::syncAll(QOpenGLFunctions_3_3_Core* gl)
     return true;
 }
 
-bool ResourceManager::releaseGL(QOpenGLFunctions_3_3_Core* gl)
+bool ResourceManager::releaseGL(
+    QOpenGLFunctions_3_3_Core* gl)
 {
     if (gl == 0)
     {
-        qWarning() << "ResourceManager releaseGL failed: OpenGL functions are null.";
+        qWarning()
+            << "ResourceManager releaseGL failed:"
+            << "OpenGL functions are null.";
+
         return false;
     }
 
     bool result = true;
 
-    std::map<ResourceId, Resource*>::iterator it = m_resources.begin();
+    std::map<ResourceId, ResourceEntry>::iterator it =
+        m_resources.begin();
 
     while (it != m_resources.end())
     {
-        if (it->second->isInitialized() && !it->second->releaseGL(gl))
+        Resource* resource = it->second.resource;
+
+        if (resource != 0 &&
+            resource->isInitialized() &&
+            !resource->releaseGL(gl))
+        {
+            qWarning()
+                << "ResourceManager releaseGL failed:"
+                << resource->name();
+
             result = false;
+        }
 
         ++it;
     }
@@ -234,10 +436,15 @@ bool ResourceManager::releaseGL(QOpenGLFunctions_3_3_Core* gl)
 
 ResourceId ResourceManager::allocateId()
 {
-    while (m_nextId == InvalidResourceId || contains(m_nextId))
+    while (
+        m_nextId == InvalidResourceId ||
+        contains(m_nextId))
+    {
         ++m_nextId;
+    }
 
     const ResourceId id = m_nextId;
+
     ++m_nextId;
 
     return id;

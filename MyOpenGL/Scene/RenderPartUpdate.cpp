@@ -7,14 +7,13 @@ RenderPartUpdate::RenderPartUpdate()
 {
 }
 
-/// Update 创建
-
-RenderPartUpdate RenderPartUpdate::replacement(RenderPartId partIdValue, const Geometry* geometryValue)
+RenderPartUpdate RenderPartUpdate::replacement(RenderPartId partIdValue, const Geometry* geometryValue, const AxisAlignedBoundingBox& localBoundsValue)
 {
     RenderPartUpdate result;
     result.partId = partIdValue;
     result.operation = RenderPartUpdateReplace;
     result.geometry = geometryValue;
+    result.localBounds = localBoundsValue;
     return result;
 }
 
@@ -26,12 +25,10 @@ RenderPartUpdate RenderPartUpdate::removal(RenderPartId partIdValue)
     return result;
 }
 
-/// 状态判断
-
 bool RenderPartUpdate::isValid() const
 {
     if (operation == RenderPartUpdateReplace)
-        return geometry != 0;
+        return geometry != 0 && localBounds.isValid();
 
     if (operation == RenderPartUpdateRemove)
         return geometry == 0;
