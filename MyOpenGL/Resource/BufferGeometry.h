@@ -22,11 +22,12 @@ struct GeometryVertexAttribute
 class BufferGeometry : public Geometry
 {
 public:
-    BufferGeometry(const QString& name, ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic, RenderType renderType = Triangles);
+    BufferGeometry(const QString& name, BufferUsage usage = BufferUsage::Dynamic, RenderType renderType = RenderType::Triangles);
     ~BufferGeometry() override;
 
     /// Geometry 基本信息
     RenderType renderType() const override;
+    BufferUsage bufferUsage() const { return m_usage; }
 
     /// 顶点布局
     void setVertexLayout(int valuesPerVertex, const std::vector<GeometryVertexAttribute>& attributes);
@@ -72,12 +73,13 @@ private:
     bool validateData() const;
     void configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl);
     void releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl);
-    GLenum bufferUsage() const;
+    GLenum glBufferUsage() const;
 
 private:
     GLuint m_vao;                                            // 当前 Geometry VAO。
     GLuint m_vbo;                                            // 当前 Interleaved Vertex Buffer。
     GLuint m_ebo;                                            // 当前 Index Buffer。
+    BufferUsage m_usage;                                     // 当前 GPU Buffer 使用策略。
     RenderType m_renderType;                                 // 当前几何绘制类型。
     int m_valuesPerVertex;                                   // 一个 Vertex 包含的 GLfloat 数量。
     std::vector<GeometryVertexAttribute> m_attributes;       // 当前 Vertex Layout。

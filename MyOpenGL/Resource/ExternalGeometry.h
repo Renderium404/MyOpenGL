@@ -11,11 +11,11 @@
 #include <vector>
 
 /// External Geometry 最近一次实际执行的 GPU 同步类型。
-enum ExternalGeometrySyncType
+enum class ExternalGeometrySyncType
 {
-    ExternalGeometrySyncNone,
-    ExternalGeometrySyncFull,
-    ExternalGeometrySyncPartial
+    None,
+    Full,
+    Partial
 };
 
 /// 获取 External Geometry GPU 同步类型的调试名称。
@@ -39,8 +39,11 @@ struct ExternalGeometrySyncStatistics
 class ExternalGeometry : public Geometry
 {
 public:
-    explicit ExternalGeometry(const QString& name = "ExternalGeometry", ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic);
+    explicit ExternalGeometry(const QString& name = "ExternalGeometry", BufferUsage usage = BufferUsage::Dynamic);
     ~ExternalGeometry() override;
+
+    /// Geometry 基本信息
+    BufferUsage bufferUsage() const { return m_usage; }
 
     /// 自动数据源模式
     bool setDataSource(const ExternalGeometryDataSource* source); // 绑定非拥有的外部 DataSource，并启用 Revision 自动同步。
@@ -95,13 +98,14 @@ private:
     void appendDirtyRange(const ExternalGeometryDirtyRange& range);
     std::size_t componentTypeSize(GLenum type) const;
     std::size_t indexTypeSize(GLenum type) const;
-    GLenum bufferUsage() const;
+    GLenum glBufferUsage() const;
 
 private:
     const ExternalGeometryDataSource* m_source;                // 当前自动外部数据源，不拥有该对象。
     ExternalGeometryDataView m_view;                           // 当前借用的外部 Geometry DataView。
     ExternalGeometryRevision m_structureRevision;             // 当前 Resource 已观察到的 Structure Revision。
     ExternalGeometryRevision m_contentRevision;               // 当前 Resource 已观察到的 Content Revision。
+    BufferUsage m_usage;                                      // 当前 GPU Buffer 使用策略。
     GLuint m_vao;                                              // 当前 External Geometry VAO。
     std::vector<GLuint> m_vertexBuffers;                       // 每个外部 Vertex Stream 对应的 GPU VBO。
     GLuint m_indexBuffer;                                      // 当前 GPU EBO。

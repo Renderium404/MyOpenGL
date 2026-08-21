@@ -4,8 +4,8 @@
 
 #include <cstring>
 
-Texture::Texture(const QString& name, ResourceUpdatePolicy updatePolicy)
-    : Resource(name, ResourceTypeTexture, updatePolicy)
+Texture::Texture(const QString& name)
+    : Resource(name, ResourceType::Texture)
     , m_textureId(0)
 {
 }

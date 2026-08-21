@@ -3,7 +3,7 @@
 #include <QDebug>
 
 Curve::Curve(const QString& name)
-    : BufferGeometry(name, ResourceUpdateDynamic, LineStrip)
+    : BufferGeometry(name, BufferUsage::Dynamic, RenderType::LineStrip)
     , m_color(1.0f, 1.0f, 1.0f)
 {
     std::vector<GeometryVertexAttribute> attributes;

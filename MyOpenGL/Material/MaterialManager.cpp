@@ -14,44 +14,34 @@ MaterialManager::~MaterialManager()
 
 /// 材质管理
 
-MaterialId MaterialManager::add(Material* material)
+Material* MaterialManager::createMaterial(const QString& name)
 {
-    if (material == 0)
+    const MaterialId id = allocateId();
+
+    if (id == InvalidMaterialId)
     {
-        qWarning() << "MaterialManager add failed: material is null.";
-        return InvalidMaterialId;
+        qWarning() << "MaterialManager createMaterial failed: unable to allocate MaterialId:" << name;
+        return 0;
     }
 
-    if (material->id() != InvalidMaterialId)
-    {
-        qWarning() << "MaterialManager add failed: material already has an id:" << material->name();
-        return InvalidMaterialId;
-    }
+    Material* material = new Material(name);
 
-    const MaterialId id = m_nextId++;
     material->setId(id);
     m_materials[id] = material;
-    return id;
+
+    return material;
 }
 
 Material* MaterialManager::get(MaterialId id)
 {
     MaterialMap::iterator it = m_materials.find(id);
-
-    if (it == m_materials.end())
-        return 0;
-
-    return it->second;
+    return it != m_materials.end() ? it->second : 0;
 }
 
 const Material* MaterialManager::get(MaterialId id) const
 {
     MaterialMap::const_iterator it = m_materials.find(id);
-
-    if (it == m_materials.end())
-        return 0;
-
-    return it->second;
+    return it != m_materials.end() ? it->second : 0;
 }
 
 bool MaterialManager::contains(MaterialId id) const
@@ -74,8 +64,16 @@ bool MaterialManager::remove(MaterialId id)
         return false;
     }
 
-    delete it->second;
+    Material* material = it->second;
+
     m_materials.erase(it);
+
+    if (material != 0)
+    {
+        material->setId(InvalidMaterialId);
+        delete material;
+    }
+
     return true;
 }
 
@@ -85,9 +83,31 @@ void MaterialManager::clear()
 
     while (it != m_materials.end())
     {
-        delete it->second;
+        Material* material = it->second;
+
+        if (material != 0)
+        {
+            material->setId(InvalidMaterialId);
+            delete material;
+        }
+
         ++it;
     }
 
     m_materials.clear();
+    m_nextId = 1;
+}
+
+/// MaterialId
+
+MaterialId MaterialManager::allocateId()
+{
+    while (m_nextId == InvalidMaterialId || contains(m_nextId))
+        ++m_nextId;
+
+    const MaterialId id = m_nextId;
+
+    ++m_nextId;
+
+    return id;
 }

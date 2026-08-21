@@ -1,6 +1,7 @@
 #include "CameraManager.h"
 
 #include <QDebug>
+#include <QMatrix3x3>
 #include <QtMath>
 
 CameraManager::CameraManager()
@@ -17,21 +18,17 @@ CameraManager::~CameraManager()
 
 /// Camera 管理
 
-CameraId CameraManager::add(Camera* camera)
+Camera* CameraManager::createCamera(const QString& name)
 {
-    if (camera == 0)
+    const CameraId id = allocateId();
+
+    if (id == InvalidCameraId)
     {
-        qWarning() << "CameraManager add failed: camera is null.";
-        return InvalidCameraId;
+        qWarning() << "CameraManager createCamera failed: unable to allocate CameraId:" << name;
+        return 0;
     }
 
-    if (camera->id() != InvalidCameraId)
-    {
-        qWarning() << "CameraManager add failed: camera already has an id:" << camera->id();
-        return InvalidCameraId;
-    }
-
-    const CameraId id = m_nextId++;
+    Camera* camera = new Camera(name);
 
     camera->setId(id);
     m_cameras[id] = camera;
@@ -39,7 +36,7 @@ CameraId CameraManager::add(Camera* camera)
     if (m_activeCameraId == InvalidCameraId)
         m_activeCameraId = id;
 
-    return id;
+    return camera;
 }
 
 Camera* CameraManager::get(CameraId id)
@@ -75,7 +72,12 @@ bool CameraManager::remove(CameraId id)
     const bool wasActive = m_activeCameraId == id;
 
     m_cameras.erase(it);
-    delete camera;
+
+    if (camera != 0)
+    {
+        camera->setId(InvalidCameraId);
+        delete camera;
+    }
 
     if (wasActive)
         m_activeCameraId = m_cameras.empty() ? InvalidCameraId : m_cameras.begin()->first;
@@ -85,11 +87,25 @@ bool CameraManager::remove(CameraId id)
 
 void CameraManager::clear()
 {
-    for (CameraMap::iterator it = m_cameras.begin(); it != m_cameras.end(); ++it)
-        delete it->second;
+    CameraMap::iterator it = m_cameras.begin();
+
+    while (it != m_cameras.end())
+    {
+        Camera* camera = it->second;
+
+        if (camera != 0)
+        {
+            camera->setId(InvalidCameraId);
+            delete camera;
+        }
+
+        ++it;
+    }
 
     m_cameras.clear();
+    m_nextId = 1;
     m_activeCameraId = InvalidCameraId;
+    m_viewBounds.reset();
 }
 
 /// Active Camera
@@ -187,9 +203,7 @@ bool CameraManager::panAt(const QVector3D& anchor, float deltaX, float deltaY, i
         worldUnitsPerPixel = camera->parallelHeight() / static_cast<float>(viewportHeight);
     }
 
-    const QVector3D translation =
-        camera->right() * (-deltaX * worldUnitsPerPixel) +
-        camera->up() * (deltaY * worldUnitsPerPixel);
+    const QVector3D translation = camera->right() * (-deltaX * worldUnitsPerPixel) + camera->up() * (deltaY * worldUnitsPerPixel);
 
     return camera->setCamera(camera->position() + translation, camera->orientation());
 }
@@ -247,11 +261,7 @@ bool CameraManager::zoomAt(const QVector3D& anchor, float factor, int viewportWi
     const float anchorX = QVector3D::dotProduct(anchorOffset, camera->right());
     const float anchorY = QVector3D::dotProduct(anchorOffset, camera->up());
 
-    const QVector3D newAnchorOffset =
-        camera->right() * (anchorX / actualFactor) +
-        camera->up() * (anchorY / actualFactor) +
-        camera->forward() * depth;
-
+    const QVector3D newAnchorOffset = camera->right() * (anchorX / actualFactor) + camera->up() * (anchorY / actualFactor) + camera->forward() * depth;
     const QVector3D newPosition = anchor - newAnchorOffset;
 
     if (!camera->setParallel(newHeight, camera->nearPlane(), camera->farPlane()))
@@ -259,10 +269,8 @@ bool CameraManager::zoomAt(const QVector3D& anchor, float factor, int viewportWi
 
     return camera->setCamera(newPosition, camera->orientation());
 }
-bool CameraManager::setViewDirection(
-    const QVector3D& anchor,
-    const QVector3D& forward,
-    const QVector3D& up)
+
+bool CameraManager::setViewDirection(const QVector3D& anchor, const QVector3D& forward, const QVector3D& up)
 {
     Camera* camera = activeCamera();
 
@@ -319,14 +327,12 @@ bool CameraManager::setViewDirection(
     rotation(1, 2) = back.y();
     rotation(2, 2) = back.z();
 
-    const QQuaternion orientation =
-        QQuaternion::fromRotationMatrix(rotation).normalized();
-
-    const QVector3D newPosition =
-        anchor - normalizedForward * distance;
+    const QQuaternion orientation = QQuaternion::fromRotationMatrix(rotation).normalized();
+    const QVector3D newPosition = anchor - normalizedForward * distance;
 
     return camera->setCamera(newPosition, orientation);
 }
+
 /// View Bounds
 
 bool CameraManager::setViewBounds(const AxisAlignedBoundingBox& bounds)
@@ -343,7 +349,7 @@ bool CameraManager::setViewBounds(const AxisAlignedBoundingBox& bounds)
 
 void CameraManager::clearViewBounds()
 {
-    m_viewBounds = AxisAlignedBoundingBox();
+    m_viewBounds.reset();
 }
 
 bool CameraManager::hasViewBounds() const
@@ -355,6 +361,7 @@ const AxisAlignedBoundingBox& CameraManager::viewBounds() const
 {
     return m_viewBounds;
 }
+
 bool CameraManager::focusBounds(const AxisAlignedBoundingBox& bounds)
 {
     Camera* camera = activeCamera();
@@ -383,12 +390,11 @@ bool CameraManager::focusBounds(const AxisAlignedBoundingBox& bounds)
         return false;
 
     m_viewBounds = bounds;
+
     return true;
 }
-bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds,
-                              int viewportWidth,
-                              int viewportHeight,
-                              float margin)
+
+bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewportWidth, int viewportHeight, float margin)
 {
     Camera* camera = activeCamera();
 
@@ -506,9 +512,7 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds,
             }
         }
 
-        const float requiredHeight = qMax(
-            verticalExtent * 2.0f,
-            horizontalExtent * 2.0f / aspect) * margin;
+        const float requiredHeight = qMax(verticalExtent * 2.0f, horizontalExtent * 2.0f / aspect) * margin;
 
         const float minimumCenterDepth = camera->nearPlane() * 1.01f - minimumDepthOffset;
         const float maximumCenterDepth = camera->farPlane() * 0.99f - maximumDepthOffset;
@@ -532,5 +536,20 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds,
     }
 
     m_viewBounds = bounds;
+
     return true;
+}
+
+/// CameraId
+
+CameraId CameraManager::allocateId()
+{
+    while (m_nextId == InvalidCameraId || contains(m_nextId))
+        ++m_nextId;
+
+    const CameraId id = m_nextId;
+
+    ++m_nextId;
+
+    return id;
 }

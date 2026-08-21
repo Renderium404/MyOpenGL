@@ -4,11 +4,12 @@
 
 #include <algorithm>
 
-BufferGeometry::BufferGeometry(const QString& name, ResourceUpdatePolicy updatePolicy, RenderType renderType)
-    : Geometry(name, updatePolicy)
+BufferGeometry::BufferGeometry(const QString& name, BufferUsage usage, RenderType renderType)
+    : Geometry(name)
     , m_vao(0)
     , m_vbo(0)
     , m_ebo(0)
+    , m_usage(usage)
     , m_renderType(renderType)
     , m_valuesPerVertex(0)
 {
@@ -204,10 +205,10 @@ bool BufferGeometry::onInitializeGL(QOpenGLFunctions_3_3_Core* gl)
     gl->glBindVertexArray(m_vao);
 
     gl->glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-    gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_vertices.size() * sizeof(GLfloat)), &m_vertices[0], bufferUsage());
+    gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_vertices.size() * sizeof(GLfloat)), &m_vertices[0], glBufferUsage());
 
     gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_indices.size() * sizeof(GLuint)), &m_indices[0], bufferUsage());
+    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_indices.size() * sizeof(GLuint)), &m_indices[0], glBufferUsage());
 
     configureVertexAttributes(gl);
 
@@ -229,10 +230,10 @@ bool BufferGeometry::onUpdateFullGL(QOpenGLFunctions_3_3_Core* gl)
     gl->glBindVertexArray(m_vao);
 
     gl->glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-    gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_vertices.size() * sizeof(GLfloat)), &m_vertices[0], bufferUsage());
+    gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_vertices.size() * sizeof(GLfloat)), &m_vertices[0], glBufferUsage());
 
     gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_indices.size() * sizeof(GLuint)), &m_indices[0], bufferUsage());
+    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_indices.size() * sizeof(GLuint)), &m_indices[0], glBufferUsage());
 
     // Layout 可能在 Full Update 前发生变化，因此重新配置当前 VAO Attribute。
     configureVertexAttributes(gl);
@@ -338,19 +339,19 @@ bool BufferGeometry::validateData() const
         }
     }
 
-    if (m_renderType == Triangles && m_indices.size() % 3 != 0)
+    if (m_renderType == RenderType::Triangles && m_indices.size() % 3 != 0)
     {
         qWarning() << "BufferGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (m_renderType == Lines && m_indices.size() % 2 != 0)
+    if (m_renderType == RenderType::Lines && m_indices.size() % 2 != 0)
     {
         qWarning() << "BufferGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (m_renderType == LineStrip && m_indices.size() < 2)
+    if (m_renderType == RenderType::LineStrip && m_indices.size() < 2)
     {
         qWarning() << "BufferGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;
@@ -428,7 +429,7 @@ void BufferGeometry::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
     m_enabledAttributeLocations.clear();
 }
 
-GLenum BufferGeometry::bufferUsage() const
+GLenum BufferGeometry::glBufferUsage() const
 {
-    return updatePolicy() == ResourceUpdateDynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
+    return m_usage == BufferUsage::Dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
 }

@@ -24,13 +24,13 @@ struct RenderState
 {
     RenderState();
 
-    QMatrix4x4 model;
-    QMatrix4x4 view;
-    QMatrix4x4 projection;
+    QMatrix4x4 model;           //模型坐标转世界坐标的变换矩阵
+    QMatrix4x4 view;            //世界坐标转窗口坐标的变换矩阵
+    QMatrix4x4 projection;      //窗口坐标转窗口投影的变换矩阵
 
-    RenderViewport viewport;
+    RenderViewport viewport;    //窗口信息
 
-    bool depthTestEnabled;
+    bool depthTestEnabled;      //是否启用深度测试
     bool depthWriteEnabled;
 };
 

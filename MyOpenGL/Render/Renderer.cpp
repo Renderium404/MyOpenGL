@@ -1,16 +1,14 @@
 #include "Renderer.h"
 
 #include "MyOpenGL/Light/Light.h"
-#include "MyOpenGL/Light/LightManager.h"
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Render/MyOpenGLContext.h"
 #include "MyOpenGL/Resource/Geometry.h"
 
 #include <QDebug>
 #include <QMatrix3x3>
+#include <QVector3D>
 #include <QtMath>
-
-#include <vector>
 
 Renderer::Renderer()
     : m_openGLContext(0)
@@ -25,13 +23,9 @@ Renderer::Renderer()
     , m_litViewLocation(-1)
     , m_litProjectionLocation(-1)
     , m_litNormalLocation(-1)
-    , m_litCameraPositionLocation(-1)
     , m_litBaseColorLocation(-1)
-    , m_litSpecularColorLocation(-1)
-    , m_litShininessLocation(-1)
     , m_litUseVertexColorLocation(-1)
-    , m_litAmbientColorLocation(-1)
-    , m_litAmbientIntensityLocation(-1)
+    , m_litAmbientLightLocation(-1)
     , m_litLightCountLocation(-1)
     , m_litLightTypeLocation(-1)
     , m_litLightPositionLocation(-1)
@@ -75,7 +69,7 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
     const char* vertexColorVertexShader =
         "#version 330 core\n"
         "layout(location = 0) in vec3 aPosition;\n"
-        "layout(location = 1) in vec3 aColor;\n"
+        "layout(location = 3) in vec3 aColor;\n"
         "uniform mat4 model;\n"
         "uniform mat4 view;\n"
         "uniform mat4 projection;\n"
@@ -119,14 +113,14 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "#version 330 core\n"
         "layout(location = 0) in vec3 aPosition;\n"
         "layout(location = 1) in vec3 aNormal;\n"
-        "layout(location = 3) in vec4 aVertexColor;\n"
+        "layout(location = 3) in vec3 aVertexColor;\n"
         "uniform mat4 model;\n"
         "uniform mat4 view;\n"
         "uniform mat4 projection;\n"
         "uniform mat3 normalMatrix;\n"
         "out vec3 fragmentPosition;\n"
         "out vec3 fragmentNormal;\n"
-        "out vec4 vertexColor;\n"
+        "out vec3 vertexColor;\n"
         "void main()\n"
         "{\n"
         "    vec4 worldPosition = model * vec4(aPosition, 1.0);\n"
@@ -145,16 +139,11 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "\n"
         "in vec3 fragmentPosition;\n"
         "in vec3 fragmentNormal;\n"
-        "in vec4 vertexColor;\n"
+        "in vec3 vertexColor;\n"
         "\n"
-        "uniform vec3 cameraPosition;\n"
         "uniform vec4 baseColor;\n"
-        "uniform vec3 specularColor;\n"
-        "uniform float shininess;\n"
         "uniform bool useVertexColor;\n"
-        "\n"
-        "uniform vec3 ambientColor;\n"
-        "uniform float ambientIntensity;\n"
+        "uniform vec3 ambientLight;\n"
         "\n"
         "uniform int lightCount;\n"
         "uniform int lightType[MaxLights];\n"
@@ -170,16 +159,10 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "\n"
         "void main()\n"
         "{\n"
-        "    vec4 surfaceColor = baseColor;\n"
-        "\n"
-        "    if (useVertexColor)\n"
-        "        surfaceColor *= vertexColor;\n"
-        "\n"
+        "    vec4 surfaceColor = useVertexColor ? vec4(vertexColor, 1.0) : baseColor;\n"
         "    vec3 normal = normalize(fragmentNormal);\n"
-        "    vec3 viewDirection = normalize(cameraPosition - fragmentPosition);\n"
         "\n"
-        "    vec3 diffuseAccumulation = vec3(0.0);\n"
-        "    vec3 specularAccumulation = vec3(0.0);\n"
+        "    vec3 result = surfaceColor.rgb * ambientLight;\n"
         "\n"
         "    for (int i = 0; i < MaxLights; ++i)\n"
         "    {\n"
@@ -223,16 +206,10 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "            continue;\n"
         "\n"
         "        vec3 radiance = lightColor[i] * lightIntensity[i] * attenuation;\n"
-        "\n"
-        "        diffuseAccumulation += surfaceColor.rgb * radiance * diffuseFactor;\n"
-        "\n"
-        "        vec3 halfDirection = normalize(toLight + viewDirection);\n"
-        "        float specularFactor = pow(max(dot(normal, halfDirection), 0.0), shininess);\n"
-        "        specularAccumulation += specularColor * radiance * specularFactor;\n"
+        "        result += surfaceColor.rgb * radiance * diffuseFactor;\n"
         "    }\n"
         "\n"
-        "    vec3 ambient = surfaceColor.rgb * ambientColor * ambientIntensity;\n"
-        "    FragColor = vec4(ambient + diffuseAccumulation + specularAccumulation, surfaceColor.a);\n"
+        "    FragColor = vec4(result, surfaceColor.a);\n"
         "}\n";
 
     if (!m_vertexColorProgram.initialize(gl, vertexColorVertexShader, vertexColorFragmentShader))
@@ -264,15 +241,11 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
     m_litViewLocation = m_litProgram.uniformLocation(gl, "view");
     m_litProjectionLocation = m_litProgram.uniformLocation(gl, "projection");
     m_litNormalLocation = m_litProgram.uniformLocation(gl, "normalMatrix");
-    m_litCameraPositionLocation = m_litProgram.uniformLocation(gl, "cameraPosition");
 
     m_litBaseColorLocation = m_litProgram.uniformLocation(gl, "baseColor");
-    m_litSpecularColorLocation = m_litProgram.uniformLocation(gl, "specularColor");
-    m_litShininessLocation = m_litProgram.uniformLocation(gl, "shininess");
     m_litUseVertexColorLocation = m_litProgram.uniformLocation(gl, "useVertexColor");
 
-    m_litAmbientColorLocation = m_litProgram.uniformLocation(gl, "ambientColor");
-    m_litAmbientIntensityLocation = m_litProgram.uniformLocation(gl, "ambientIntensity");
+    m_litAmbientLightLocation = m_litProgram.uniformLocation(gl, "ambientLight");
 
     m_litLightCountLocation = m_litProgram.uniformLocation(gl, "lightCount");
     m_litLightTypeLocation = m_litProgram.uniformLocation(gl, "lightType[0]");
@@ -286,16 +259,13 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
 
     if (m_colorModelLocation < 0 || m_colorViewLocation < 0 || m_colorProjectionLocation < 0 ||
         m_solidModelLocation < 0 || m_solidViewLocation < 0 || m_solidProjectionLocation < 0 || m_solidColorLocation < 0 ||
-        m_litModelLocation < 0 || m_litViewLocation < 0 || m_litProjectionLocation < 0 ||
-        m_litNormalLocation < 0 || m_litCameraPositionLocation < 0 ||
-        m_litBaseColorLocation < 0 || m_litSpecularColorLocation < 0 ||
-        m_litShininessLocation < 0 || m_litUseVertexColorLocation < 0 ||
-        m_litAmbientColorLocation < 0 || m_litAmbientIntensityLocation < 0 ||
+        m_litModelLocation < 0 || m_litViewLocation < 0 || m_litProjectionLocation < 0 || m_litNormalLocation < 0 ||
+        m_litBaseColorLocation < 0 || m_litUseVertexColorLocation < 0 || m_litAmbientLightLocation < 0 ||
         m_litLightCountLocation < 0 || m_litLightTypeLocation < 0 ||
         m_litLightPositionLocation < 0 || m_litLightDirectionLocation < 0 ||
         m_litLightColorLocation < 0 || m_litLightIntensityLocation < 0 ||
-        m_litLightRangeLocation < 0 ||
-        m_litLightInnerConeCosLocation < 0 || m_litLightOuterConeCosLocation < 0)
+        m_litLightRangeLocation < 0 || m_litLightInnerConeCosLocation < 0 ||
+        m_litLightOuterConeCosLocation < 0)
     {
         qWarning() << "Renderer initialize failed: required Shader Uniform was not found.";
 
@@ -418,6 +388,7 @@ void Renderer::endFrame()
 }
 
 /// Geometry Draw
+
 bool Renderer::clearDepth(const RenderViewport& viewport)
 {
     if (!m_frameActive)
@@ -446,7 +417,8 @@ bool Renderer::clearDepth(const RenderViewport& viewport)
 
     return true;
 }
-bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const LightManager* lightManager)
+
+bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const std::vector<const Light*>& lights)
 {
     if (!m_frameActive)
     {
@@ -460,25 +432,80 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
         return false;
     }
 
-    switch (material->type())
+    if (!material->lightingEnabled())
     {
-    case MaterialTypeVertexColor:
-        return drawVertexColorGeometry(geometry, state);
-
-    case MaterialTypeLit:
-    case MaterialTypeLitVertexColor:
-        if (lightManager == 0)
+        switch (material->surfaceMode())
         {
-            qWarning() << "Renderer drawGeometry failed: Lit Material requires LightManager:"
-                       << material->name();
-            return false;
+        case SurfaceMode::Color:
+            return drawColorGeometry(geometry, material->color(), state);
+
+        case SurfaceMode::VertexColor:
+            return drawVertexColorGeometry(geometry, state);
         }
 
-        return drawLitGeometry(geometry, material, state, lightManager);
+        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:" << material->name();
+        return false;
     }
 
-    qWarning() << "Renderer drawGeometry failed: unsupported Material type:" << material->name();
-    return false;
+    return drawLitGeometry(geometry, material, state, lights);
+}
+
+/// Color
+
+bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& color, const RenderState& state)
+{
+    if (geometry == 0)
+        return false;
+
+    if (!geometry->isInitialized() || geometry->vao() == 0)
+    {
+        qWarning() << "Renderer drawColorGeometry failed: Geometry GPU resource is not initialized:"
+                   << geometry->name();
+        return false;
+    }
+
+    if (geometry->indexCount() <= 0)
+    {
+        qWarning() << "Renderer drawColorGeometry failed: Geometry contains no indices:"
+                   << geometry->name();
+        return false;
+    }
+
+    if (!geometry->hasAttribute(0, 3))
+    {
+        qWarning() << "Renderer drawColorGeometry failed: position layout is required:"
+                   << geometry->name();
+        return false;
+    }
+
+    QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
+
+    if (gl == 0)
+        return false;
+
+    if (!geometry->prepareDrawGL(gl))
+        return false;
+
+    if (!applyRenderState(state))
+    {
+        geometry->finishDrawGL(gl);
+        return false;
+    }
+
+    m_solidColorProgram.bind(gl);
+
+    gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
+    gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
+    gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
+    gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
+
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    gl->glBindVertexArray(0);
+
+    geometry->finishDrawGL(gl);
+
+    return true;
 }
 
 /// Vertex Color
@@ -502,7 +529,7 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
         return false;
     }
 
-    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
+    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(3, 3))
     {
         qWarning() << "Renderer drawVertexColorGeometry failed: position + color layout is required:"
                    << geometry->name();
@@ -540,9 +567,9 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
 
 /// Lit
 
-bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const LightManager* lightManager)
+bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const std::vector<const Light*>& lights)
 {
-    if (geometry == 0 || material == 0 || lightManager == 0)
+    if (geometry == 0 || material == 0)
         return false;
 
     if (!geometry->isInitialized() || geometry->vao() == 0)
@@ -559,15 +586,6 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         return false;
     }
 
-    const bool useVertexColor = material->type() == MaterialTypeLitVertexColor;
-
-    if (material->type() != MaterialTypeLit && !useVertexColor)
-    {
-        qWarning() << "Renderer drawLitGeometry failed: Lit or LitVertexColor Material is required:"
-                   << material->name();
-        return false;
-    }
-
     if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
     {
         qWarning() << "Renderer drawLitGeometry failed: position + normal layout is required:"
@@ -575,9 +593,18 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         return false;
     }
 
-    if (useVertexColor && !geometry->hasAttribute(3, 4))
+    const bool useVertexColor = material->surfaceMode() == SurfaceMode::VertexColor;
+
+    if (material->surfaceMode() != SurfaceMode::Color && !useVertexColor)
     {
-        qWarning() << "Renderer drawLitGeometry failed: LitVertexColor requires color4 at attribute location 3:"
+        qWarning() << "Renderer drawLitGeometry failed: unsupported Material surface mode:"
+                   << material->name();
+        return false;
+    }
+
+    if (useVertexColor && !geometry->hasAttribute(3, 3))
+    {
+        qWarning() << "Renderer drawLitGeometry failed: VertexColor requires color3 at attribute location 3:"
                    << geometry->name();
         return false;
     }
@@ -587,25 +614,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     if (gl == 0)
         return false;
 
-    const QMatrix3x3 normalMatrix = state.model.normalMatrix();
-
-    const QVector4D& baseColor = material->baseColor();
-    const QVector3D& specularColor = material->specularColor();
-    const QVector3D& ambientColor = lightManager->ambientColor();
-
-    std::vector<const Light*> enabledLights;
-    lightManager->enabledLights(enabledLights);
-
-    if (enabledLights.size() > static_cast<std::size_t>(MaxLights) && !m_lightLimitWarningIssued)
-    {
-        qWarning() << "Renderer drawLitGeometry: enabled light count exceeds MaxLights; extra lights are ignored:"
-                   << "Enabled=" << static_cast<int>(enabledLights.size())
-                   << "MaxLights=" << MaxLights;
-
-        m_lightLimitWarningIssued = true;
-    }
-
-    const int lightCount = qMin(static_cast<int>(enabledLights.size()), MaxLights);
+    QVector3D ambientLight(0.0f, 0.0f, 0.0f);
 
     GLint lightTypes[MaxLights] = { 0 };
 
@@ -621,20 +630,56 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
 
     const float degreesToRadians = 0.017453292519943295f;
 
-    for (int lightIndex = 0; lightIndex < lightCount; ++lightIndex)
+    int lightCount = 0;
+    int nonAmbientLightCount = 0;
+
+    for (std::size_t i = 0; i < lights.size(); ++i)
     {
-        const Light* light = enabledLights[static_cast<std::size_t>(lightIndex)];
+        const Light* light = lights[i];
 
         if (light == 0)
             continue;
+
+        // Renderer 只消费调用者传入的灯光集合。
+        // 即使 Light 被标记为 Disabled，只要被传入，本次 Draw 仍然使用它。
+        if (light->lightType() == LightType::Ambient)
+        {
+            ambientLight += light->color() * light->intensity();
+            continue;
+        }
+
+        ++nonAmbientLightCount;
+
+        if (lightCount >= MaxLights)
+            continue;
+
+        GLint shaderLightType = 0;
+
+        switch (light->lightType())
+        {
+        case LightType::Directional:
+            shaderLightType = 0;
+            break;
+
+        case LightType::Point:
+            shaderLightType = 1;
+            break;
+
+        case LightType::Spot:
+            shaderLightType = 2;
+            break;
+
+        case LightType::Ambient:
+            continue;
+        }
 
         const QVector3D& position = light->position();
         const QVector3D& direction = light->direction();
         const QVector3D& color = light->color();
 
-        const int vectorOffset = lightIndex * 3;
+        const int vectorOffset = lightCount * 3;
 
-        lightTypes[lightIndex] = static_cast<GLint>(light->type());
+        lightTypes[lightCount] = shaderLightType;
 
         lightPositions[vectorOffset + 0] = position.x();
         lightPositions[vectorOffset + 1] = position.y();
@@ -648,11 +693,22 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         lightColors[vectorOffset + 1] = color.y();
         lightColors[vectorOffset + 2] = color.z();
 
-        lightIntensities[lightIndex] = light->intensity();
-        lightRanges[lightIndex] = light->range();
+        lightIntensities[lightCount] = light->intensity();
+        lightRanges[lightCount] = light->range();
 
-        lightInnerConeCos[lightIndex] = qCos(light->innerConeAngle() * degreesToRadians);
-        lightOuterConeCos[lightIndex] = qCos(light->outerConeAngle() * degreesToRadians);
+        lightInnerConeCos[lightCount] = qCos(light->innerConeAngle() * degreesToRadians);
+        lightOuterConeCos[lightCount] = qCos(light->outerConeAngle() * degreesToRadians);
+
+        ++lightCount;
+    }
+
+    if (nonAmbientLightCount > MaxLights && !m_lightLimitWarningIssued)
+    {
+        qWarning() << "Renderer drawLitGeometry: non-ambient light count exceeds MaxLights; extra lights are ignored:"
+                   << "Lights=" << nonAmbientLightCount
+                   << "MaxLights=" << MaxLights;
+
+        m_lightLimitWarningIssued = true;
     }
 
     if (!geometry->prepareDrawGL(gl))
@@ -664,44 +720,20 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         return false;
     }
 
+    const QMatrix3x3 normalMatrix = state.model.normalMatrix();
+    const QVector4D& baseColor = material->color();
+
     m_litProgram.bind(gl);
 
     gl->glUniformMatrix4fv(m_litModelLocation, 1, GL_FALSE, state.model.constData());
     gl->glUniformMatrix4fv(m_litViewLocation, 1, GL_FALSE, state.view.constData());
     gl->glUniformMatrix4fv(m_litProjectionLocation, 1, GL_FALSE, state.projection.constData());
-
     gl->glUniformMatrix3fv(m_litNormalLocation, 1, GL_FALSE, normalMatrix.constData());
 
-    gl->glUniform3f(
-        m_litCameraPositionLocation,
-        m_renderContext.cameraPosition.x(),
-        m_renderContext.cameraPosition.y(),
-        m_renderContext.cameraPosition.z());
-
-    gl->glUniform4f(
-        m_litBaseColorLocation,
-        baseColor.x(),
-        baseColor.y(),
-        baseColor.z(),
-        baseColor.w());
-
-    gl->glUniform3f(
-        m_litSpecularColorLocation,
-        specularColor.x(),
-        specularColor.y(),
-        specularColor.z());
-
-    gl->glUniform1f(m_litShininessLocation, material->shininess());
-
+    gl->glUniform4f(m_litBaseColorLocation, baseColor.x(), baseColor.y(), baseColor.z(), baseColor.w());
     gl->glUniform1i(m_litUseVertexColorLocation, useVertexColor ? 1 : 0);
 
-    gl->glUniform3f(
-        m_litAmbientColorLocation,
-        ambientColor.x(),
-        ambientColor.y(),
-        ambientColor.z());
-
-    gl->glUniform1f(m_litAmbientIntensityLocation, lightManager->ambientIntensity());
+    gl->glUniform3f(m_litAmbientLightLocation, ambientLight.x(), ambientLight.y(), ambientLight.z());
 
     gl->glUniform1i(m_litLightCountLocation, lightCount);
 
@@ -721,13 +753,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     }
 
     gl->glBindVertexArray(geometry->vao());
-
-    gl->glDrawElements(
-        primitiveMode(geometry),
-        geometry->indexCount(),
-        geometry->indexType(),
-        0);
-
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
     gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
@@ -751,7 +777,7 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
         return false;
     }
 
-    if (geometry->renderType() != Triangles)
+    if (geometry->renderType() != RenderType::Triangles)
     {
         qWarning() << "Renderer drawWireGeometry failed: Triangle Geometry is required:"
                    << geometry->name();
@@ -807,22 +833,10 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
     gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
     gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
     gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
-
-    gl->glUniform4f(
-        m_solidColorLocation,
-        color.x(),
-        color.y(),
-        color.z(),
-        color.w());
+    gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
 
     gl->glBindVertexArray(geometry->vao());
-
-    gl->glDrawElements(
-        GL_TRIANGLES,
-        geometry->indexCount(),
-        geometry->indexType(),
-        0);
-
+    gl->glDrawElements(GL_TRIANGLES, geometry->indexCount(), geometry->indexType(), 0);
     gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
@@ -853,11 +867,7 @@ bool Renderer::applyRenderState(const RenderState& state)
     if (gl == 0)
         return false;
 
-    gl->glViewport(
-        state.viewport.x,
-        state.viewport.y,
-        state.viewport.width,
-        state.viewport.height);
+    gl->glViewport(state.viewport.x, state.viewport.y, state.viewport.width, state.viewport.height);
 
     if (state.depthTestEnabled)
         gl->glEnable(GL_DEPTH_TEST);
@@ -882,13 +892,13 @@ GLenum Renderer::primitiveMode(const Geometry* geometry) const
 
     switch (geometry->renderType())
     {
-    case Triangles:
+    case RenderType::Triangles:
         return GL_TRIANGLES;
 
-    case Lines:
+    case RenderType::Lines:
         return GL_LINES;
 
-    case LineStrip:
+    case RenderType::LineStrip:
         return GL_LINE_STRIP;
     }
 

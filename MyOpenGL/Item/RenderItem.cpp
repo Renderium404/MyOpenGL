@@ -8,34 +8,19 @@
 #include <set>
 
 RenderItemRayHit::RenderItemRayHit()
-    : partId(DefaultRenderPartId)
+    : partId(InvalidRenderPartId)
     , distance(0.0f)
     , position(0.0f, 0.0f, 0.0f)
 {
 }
 
-const char* renderItemDisplayModeName(RenderItemDisplayMode mode)
-{
-    switch (mode)
-    {
-    case RenderItemDisplayShaded:
-        return "Shaded";
-
-    case RenderItemDisplayWireframe:
-        return "Wireframe";
-
-    case RenderItemDisplayShadedWithEdges:
-        return "ShadedWithEdges";
-    }
-
-    return "Unknown";
-}
-
 RenderItem::RenderItem(const QString& name)
-    : m_name(name)
+    : m_id(InvalidRenderItemId)
+    , m_name(name)
+    , m_nextPartId(1)
     , m_material(0)
     , m_visible(true)
-    , m_displayMode(RenderItemDisplayShaded)
+    , m_type(DisplayMode::Shaded)
     , m_edgeColor(0.05f, 0.05f, 0.05f, 1.0f)
     , m_depthTestEnabled(true)
 {
@@ -48,20 +33,33 @@ RenderItem::~RenderItem()
 
 /// 基本信息
 
-const QString& RenderItem::name() const
+QString RenderItem::type() const
 {
-    return m_name;
+    switch (m_type)
+    {
+    case DisplayMode::Shaded:
+        return "Shaded";
+
+    case DisplayMode::Wireframe:
+        return "Wireframe";
+
+    case DisplayMode::ShadedWithEdges:
+        return "ShadedWithEdges";
+    }
+
+    return "Unknown";
 }
 
 /// Part 管理
 
-RenderPart* RenderItem::createPart(RenderPartId id)
+RenderPart* RenderItem::createPart()
 {
-    if (m_partsById.find(id) != m_partsById.end())
+    const RenderPartId id = allocatePartId();
+
+    if (id == InvalidRenderPartId)
     {
-        qWarning() << "RenderItem createPart failed: duplicate PartId:"
-                   << "Item=" << m_name
-                   << "PartId=" << static_cast<qulonglong>(id);
+        qWarning() << "RenderItem createPart failed: unable to allocate RenderPartId:"
+                   << "Item=" << m_name;
         return 0;
     }
 
@@ -106,12 +104,18 @@ void RenderItem::clearParts()
 
     m_parts.clear();
     m_partsById.clear();
+    m_nextPartId = 1;
     m_localBoundsCache.reset();
 }
 
 int RenderItem::partCount() const
 {
     return static_cast<int>(m_parts.size());
+}
+
+bool RenderItem::containsPart(RenderPartId id) const
+{
+    return m_partsById.find(id) != m_partsById.end();
 }
 
 RenderPart* RenderItem::partAt(int index)
@@ -178,6 +182,14 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
                        << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
+
+        if (!containsPart(update.partId))
+        {
+            qWarning() << "RenderItem applyPartUpdates failed: Part does not exist:"
+                       << "Item=" << m_name
+                       << "PartId=" << static_cast<qulonglong>(update.partId);
+            return false;
+        }
     }
 
     for (std::size_t i = 0; i < updates.size(); ++i)
@@ -186,7 +198,7 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
 
         if (update.operation == RenderPartUpdateRemove)
         {
-            if (part(update.partId) != 0 && !removePart(update.partId))
+            if (!removePart(update.partId))
                 return false;
 
             continue;
@@ -195,12 +207,7 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
         RenderPart* targetPart = part(update.partId);
 
         if (targetPart == 0)
-        {
-            targetPart = createPart(update.partId);
-
-            if (targetPart == 0)
-                return false;
-        }
+            return false;
 
         targetPart->setGeometry(update.geometry);
         targetPart->setLocalBounds(update.localBounds);
@@ -338,19 +345,14 @@ void RenderItem::setVisible(bool visible)
     m_visible = visible;
 }
 
-RenderItemDisplayMode RenderItem::displayMode() const
-{
-    return m_displayMode;
-}
-
-bool RenderItem::setDisplayMode(RenderItemDisplayMode mode)
+bool RenderItem::setDisplayMode(DisplayMode mode)
 {
     switch (mode)
     {
-    case RenderItemDisplayShaded:
-    case RenderItemDisplayWireframe:
-    case RenderItemDisplayShadedWithEdges:
-        m_displayMode = mode;
+    case DisplayMode::Shaded:
+    case DisplayMode::Wireframe:
+    case DisplayMode::ShadedWithEdges:
+        m_type = mode;
         return true;
     }
 
@@ -376,6 +378,20 @@ bool RenderItem::depthTestEnabled() const
 void RenderItem::setDepthTestEnabled(bool enabled)
 {
     m_depthTestEnabled = enabled;
+}
+
+/// PartManager 内部接口
+
+RenderPartId RenderItem::allocatePartId()
+{
+    while (m_nextPartId == InvalidRenderPartId || containsPart(m_nextPartId))
+        ++m_nextPartId;
+
+    const RenderPartId id = m_nextPartId;
+
+    ++m_nextPartId;
+
+    return id;
 }
 
 /// 内部辅助

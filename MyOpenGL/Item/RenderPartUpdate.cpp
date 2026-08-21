@@ -1,7 +1,7 @@
 #include "RenderPartUpdate.h"
 
 RenderPartUpdate::RenderPartUpdate()
-    : partId(DefaultRenderPartId)
+    : partId(InvalidRenderPartId)
     , operation(RenderPartUpdateRemove)
     , geometry(0)
 {
@@ -10,23 +10,30 @@ RenderPartUpdate::RenderPartUpdate()
 RenderPartUpdate RenderPartUpdate::replacement(RenderPartId partIdValue, const Geometry* geometryValue, const AxisAlignedBoundingBox& localBoundsValue)
 {
     RenderPartUpdate result;
+
     result.partId = partIdValue;
     result.operation = RenderPartUpdateReplace;
     result.geometry = geometryValue;
     result.localBounds = localBoundsValue;
+
     return result;
 }
 
 RenderPartUpdate RenderPartUpdate::removal(RenderPartId partIdValue)
 {
     RenderPartUpdate result;
+
     result.partId = partIdValue;
     result.operation = RenderPartUpdateRemove;
+
     return result;
 }
 
 bool RenderPartUpdate::isValid() const
 {
+    if (partId == InvalidRenderPartId)
+        return false;
+
     if (operation == RenderPartUpdateReplace)
         return geometry != 0 && localBounds.isValid();
 

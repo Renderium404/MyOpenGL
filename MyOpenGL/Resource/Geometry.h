@@ -4,15 +4,23 @@
 #include "MyOpenGL/Core/Resource.h"
 
 /// 几何绘制类型。
-enum RenderType
+enum class RenderType
 {
     Triangles, // 每三个 Index 组成一个独立三角形。
     Lines,     // 每两个 Index 组成一条独立线段。
     LineStrip  // 所有 Index 按顺序连接成一条连续折线。
 };
 
-/// 获取 RenderType 的调试名称。
+/// GPU Buffer 数据的典型更新频率。
+enum class BufferUsage
+{
+    Static,  // Buffer 数据通常创建后很少变化，对应 GL_STATIC_DRAW。
+    Dynamic  // Buffer 数据会持续或频繁变化，对应 GL_DYNAMIC_DRAW。
+};
+
+/// 获取 Geometry 调试名称。
 const char* renderTypeName(RenderType type);
+const char* bufferUsageName(BufferUsage usage);
 
 /// 可直接提供几何绘制数据的 Resource 基类。
 /// 统一描述 Renderer 执行 Indexed Draw 所需要的 GPU 状态。
@@ -36,7 +44,7 @@ public:
     virtual void finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const;  // Draw 后结束外部 GPU 数据访问。
 
 protected:
-    Geometry(const QString& name, ResourceUpdatePolicy updatePolicy);
+    explicit Geometry(const QString& name);
 };
 
 #endif // GEOMETRY_H

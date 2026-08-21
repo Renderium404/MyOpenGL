@@ -15,7 +15,7 @@ public:
     ~MaterialManager();
 
     /// 材质管理
-    MaterialId add(Material* material);             // 注册材质并取得所有权，成功后返回分配的 MaterialId。
+    Material* createMaterial(const QString& name = "Material");
     Material* get(MaterialId id);                   // 获取指定材质，不存在时返回 0。
     const Material* get(MaterialId id) const;       // 获取指定只读材质，不存在时返回 0。
     bool contains(MaterialId id) const;
@@ -25,7 +25,9 @@ public:
 
 private:
     typedef std::map<MaterialId, Material*> MaterialMap;
+    MaterialId allocateId();
 
+private:
     MaterialMap m_materials; // 当前管理的全部 Material，MaterialManager 拥有这些对象。
     MaterialId m_nextId;     // 下一个可分配 MaterialId，0 保留为 InvalidMaterialId。
 };

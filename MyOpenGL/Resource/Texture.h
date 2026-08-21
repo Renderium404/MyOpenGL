@@ -14,7 +14,7 @@
 class Texture : public Resource
 {
 public:
-    explicit Texture(const QString& name = "Texture", ResourceUpdatePolicy updatePolicy = ResourceUpdateDynamic);
+    explicit Texture(const QString& name = "Texture");
     ~Texture() override;
 
     /// 纹理基本信息

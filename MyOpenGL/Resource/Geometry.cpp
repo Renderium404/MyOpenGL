@@ -1,7 +1,7 @@
 #include "Geometry.h"
 
-Geometry::Geometry(const QString& name, ResourceUpdatePolicy updatePolicy)
-    : Resource(name, ResourceTypeGeometry, updatePolicy)
+Geometry::Geometry(const QString& name)
+    : Resource(name, ResourceType::Geometry)
 {
 }
 
@@ -32,12 +32,25 @@ const char* renderTypeName(RenderType type)
 {
     switch (type)
     {
-    case Triangles:
+    case RenderType::Triangles:
         return "Triangles";
-    case Lines:
+    case RenderType::Lines:
         return "Lines";
-    case LineStrip:
+    case RenderType::LineStrip:
         return "LineStrip";
+    }
+
+    return "Unknown";
+}
+
+const char* bufferUsageName(BufferUsage usage)
+{
+    switch (usage)
+    {
+    case BufferUsage::Static:
+        return "Static";
+    case BufferUsage::Dynamic:
+        return "Dynamic";
     }
 
     return "Unknown";

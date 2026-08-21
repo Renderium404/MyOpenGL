@@ -6,10 +6,13 @@
 #include <cstdint>
 
 class Geometry;
+class RenderItem;
 
+/// RenderPart 唯一标识类型，由 RenderItem 统一分配。
 typedef std::uint64_t RenderPartId;
 
-const RenderPartId DefaultRenderPartId = static_cast<RenderPartId>(0);
+/// 无效 RenderPart ID。
+const RenderPartId InvalidRenderPartId = static_cast<RenderPartId>(0);
 
 /// RenderItem 内具有稳定身份的最小模型交互单位。
 /// Geometry 描述绘制数据，LocalBounds 描述 Part 在 Item Local Space 中的空间范围。
@@ -17,10 +20,8 @@ const RenderPartId DefaultRenderPartId = static_cast<RenderPartId>(0);
 class RenderPart
 {
 public:
-    explicit RenderPart(RenderPartId id);
-
     /// Identity
-    RenderPartId id() const;
+    RenderPartId id() const { return m_id; }
 
     /// Geometry
     const Geometry* geometry() const;
@@ -33,9 +34,16 @@ public:
     void clearLocalBounds();
 
 private:
-    RenderPartId m_id;
-    const Geometry* m_geometry;
-    AxisAlignedBoundingBox m_localBounds;
+    friend class RenderItem;
+
+    /// RenderItem 内部接口
+    explicit RenderPart(RenderPartId id);
+    ~RenderPart();
+
+private:
+    RenderPartId m_id;                     // Part 唯一 ID。
+    const Geometry* m_geometry;            // Part 借用 Geometry，不拥有。
+    AxisAlignedBoundingBox m_localBounds;  // Item Local Space Bounds。
 };
 
 #endif // RENDERPART_H

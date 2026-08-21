@@ -4,16 +4,17 @@
 
 #include <algorithm>
 
-ExternalGeometry::ExternalGeometry(const QString& name, ResourceUpdatePolicy updatePolicy)
-    : Geometry(name, updatePolicy)
+ExternalGeometry::ExternalGeometry(const QString& name, BufferUsage usage)
+    : Geometry(name)
     , m_source(0)
     , m_structureRevision(0)
     , m_contentRevision(0)
+    , m_usage(usage)
     , m_vao(0)
     , m_indexBuffer(0)
 {
     m_view.vertexCount = 0;
-    m_view.renderType = Triangles;
+    m_view.renderType = RenderType::Triangles;
 
     m_view.indices.data = 0;
     m_view.indices.byteSize = 0;
@@ -162,7 +163,7 @@ void ExternalGeometry::resetSyncStatistics()
     m_syncStatistics.indexUploadCalls = 0;
     m_syncStatistics.totalUploadedBytes = 0;
     m_syncStatistics.lastUploadedBytes = 0;
-    m_syncStatistics.lastSyncType = ExternalGeometrySyncNone;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncType::None;
 }
 
 /// Renderer 接口
@@ -236,7 +237,7 @@ bool ExternalGeometry::onPrepareSync()
         return true;
 
     // 已经要求 Full Update 时无需再收集局部变化，当前外部内存会在 Full Upload 时直接读取。
-    if (dirtyState() == ResourceFullDirty)
+    if (dirtyState() == ResourceDirtyState::Full)
     {
         m_contentRevision = currentContentRevision;
         m_dirtyRanges.clear();
@@ -472,19 +473,19 @@ bool ExternalGeometry::validateDataView(const ExternalGeometryDataView& view) co
         return false;
     }
 
-    if (view.renderType == Triangles && view.indices.indexCount % 3 != 0)
+    if (view.renderType == RenderType::Triangles && view.indices.indexCount % 3 != 0)
     {
         qWarning() << "ExternalGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (view.renderType == Lines && view.indices.indexCount % 2 != 0)
+    if (view.renderType == RenderType::Lines && view.indices.indexCount % 2 != 0)
     {
         qWarning() << "ExternalGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (view.renderType == LineStrip && view.indices.indexCount < 2)
+    if (view.renderType == RenderType::LineStrip && view.indices.indexCount < 2)
     {
         qWarning() << "ExternalGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;
@@ -585,7 +586,7 @@ bool ExternalGeometry::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
         const ExternalVertexBufferView& source = m_view.vertexBuffers[i];
 
         gl->glBindBuffer(GL_ARRAY_BUFFER, m_vertexBuffers[i]);
-        gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(source.byteSize), source.data, bufferUsage());
+        gl->glBufferData(GL_ARRAY_BUFFER, static_cast<GLsizeiptr>(source.byteSize), source.data, glBufferUsage());
 
         uploadedBytes += source.byteSize;
         ++vertexCalls;
@@ -604,7 +605,7 @@ bool ExternalGeometry::uploadFullGL(QOpenGLFunctions_3_3_Core* gl)
     }
 
     gl->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_indexBuffer);
-    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_view.indices.byteSize), m_view.indices.data, bufferUsage());
+    gl->glBufferData(GL_ELEMENT_ARRAY_BUFFER, static_cast<GLsizeiptr>(m_view.indices.byteSize), m_view.indices.data, glBufferUsage());
 
     uploadedBytes += m_view.indices.byteSize;
     ++indexCalls;
@@ -651,7 +652,7 @@ void ExternalGeometry::recordFullSync(std::size_t uploadedBytes, unsigned long l
     m_syncStatistics.indexUploadCalls += indexCalls;
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
-    m_syncStatistics.lastSyncType = ExternalGeometrySyncFull;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncType::Full;
 
     qDebug() << "ExternalGeometry Full GPU Sync:"
              << name()
@@ -669,7 +670,7 @@ void ExternalGeometry::recordPartialSync(std::size_t uploadedBytes, unsigned lon
     m_syncStatistics.indexUploadCalls += indexCalls;
     m_syncStatistics.totalUploadedBytes += static_cast<unsigned long long>(uploadedBytes);
     m_syncStatistics.lastUploadedBytes = uploadedBytes;
-    m_syncStatistics.lastSyncType = ExternalGeometrySyncPartial;
+    m_syncStatistics.lastSyncType = ExternalGeometrySyncType::Partial;
 
     qDebug() << "ExternalGeometry Partial GPU Sync:"
              << name()
@@ -747,9 +748,9 @@ std::size_t ExternalGeometry::indexTypeSize(GLenum type) const
     return 0;
 }
 
-GLenum ExternalGeometry::bufferUsage() const
+GLenum ExternalGeometry::glBufferUsage() const
 {
-    return updatePolicy() == ResourceUpdateDynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
+    return m_usage == BufferUsage::Dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
 }
 
 /// 调试名称
@@ -758,11 +759,11 @@ const char* externalGeometrySyncTypeName(ExternalGeometrySyncType type)
 {
     switch (type)
     {
-    case ExternalGeometrySyncNone:
+    case ExternalGeometrySyncType::None:
         return "None";
-    case ExternalGeometrySyncFull:
+    case ExternalGeometrySyncType::Full:
         return "Full";
-    case ExternalGeometrySyncPartial:
+    case ExternalGeometrySyncType::Partial:
         return "Partial";
     }
 

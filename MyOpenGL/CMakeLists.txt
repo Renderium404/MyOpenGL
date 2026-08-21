@@ -36,18 +36,18 @@ add_library(MyOpenGLCore STATIC
     Light/LightManager.cpp
     Light/LightManager.h
 
-    Scene/AxisAlignedBoundingBox.cpp
-    Scene/AxisAlignedBoundingBox.h
-    Scene/Transform.cpp
-    Scene/Transform.h
-    Scene/RenderPart.cpp
-    Scene/RenderPart.h
-    Scene/RenderPartUpdate.cpp
-    Scene/RenderPartUpdate.h
-    Scene/RenderItem.cpp
-    Scene/RenderItem.h
-    Scene/Scene.cpp
-    Scene/Scene.h
+    Item/AxisAlignedBoundingBox.cpp
+    Item/AxisAlignedBoundingBox.h
+    Item/Transform.cpp
+    Item/Transform.h
+    Item/RenderPart.cpp
+    Item/RenderPart.h
+    Item/RenderPartUpdate.cpp
+    Item/RenderPartUpdate.h
+    Item/RenderItem.cpp
+    Item/RenderItem.h
+    Item/ItemManager.cpp
+    Item/ItemManager.h
 
     Render/MyOpenGLContext.cpp
     Render/MyOpenGLContext.h

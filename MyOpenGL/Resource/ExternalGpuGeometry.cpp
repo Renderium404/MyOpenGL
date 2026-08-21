@@ -3,13 +3,13 @@
 #include <QDebug>
 
 ExternalGpuGeometry::ExternalGpuGeometry(const QString& name)
-    : Geometry(name, ResourceUpdateStatic)
+    : Geometry(name)
     , m_source(0)
     , m_observedStructureRevision(0)
     , m_synchronizedStructureRevision(0)
     , m_vao(0)
 {
-    m_view.renderType = Triangles;
+    m_view.renderType = RenderType::Triangles;
     m_view.indices.bufferId = 0;
     m_view.indices.indexCount = 0;
     m_view.indices.indexType = GL_UNSIGNED_INT;
@@ -373,19 +373,19 @@ bool ExternalGpuGeometry::validateGpuView(const ExternalGpuGeometryView& view) c
         return false;
     }
 
-    if (view.renderType == Triangles && view.indices.indexCount % 3 != 0)
+    if (view.renderType == RenderType::Triangles && view.indices.indexCount % 3 != 0)
     {
         qWarning() << "ExternalGpuGeometry validation failed: triangle index count must be divisible by 3:" << name();
         return false;
     }
 
-    if (view.renderType == Lines && view.indices.indexCount % 2 != 0)
+    if (view.renderType == RenderType::Lines && view.indices.indexCount % 2 != 0)
     {
         qWarning() << "ExternalGpuGeometry validation failed: line index count must be divisible by 2:" << name();
         return false;
     }
 
-    if (view.renderType == LineStrip && view.indices.indexCount < 2)
+    if (view.renderType == RenderType::LineStrip && view.indices.indexCount < 2)
     {
         qWarning() << "ExternalGpuGeometry validation failed: line strip requires at least 2 indices:" << name();
         return false;

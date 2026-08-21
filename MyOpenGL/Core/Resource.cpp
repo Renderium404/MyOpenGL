@@ -2,12 +2,11 @@
 
 #include <QDebug>
 
-Resource::Resource(const QString& name, ResourceType type, ResourceUpdatePolicy updatePolicy)
+Resource::Resource(const QString& name, ResourceType type)
     : m_id(InvalidResourceId)
     , m_name(name)
     , m_type(type)
-    , m_updatePolicy(updatePolicy)
-    , m_dirtyState(ResourceClean)
+    , m_dirtyState(ResourceDirtyState::Clean)
     , m_initialized(false)
 {
 }
@@ -20,47 +19,22 @@ Resource::~Resource()
 
 /// Resource 基本信息
 
-ResourceId Resource::id() const
+QString Resource::type() const
 {
-    return m_id;
+    return QString::fromLatin1(resourceTypeName(m_type));
 }
 
-const QString& Resource::name() const
-{
-    return m_name;
-}
-
-ResourceType Resource::type() const
-{
-    return m_type;
-}
-
-ResourceUpdatePolicy Resource::updatePolicy() const
-{
-    return m_updatePolicy;
-}
-
-/// GPU / Dirty 状态
-
-bool Resource::isInitialized() const
-{
-    return m_initialized;
-}
-
-ResourceDirtyState Resource::dirtyState() const
-{
-    return m_dirtyState;
-}
+/// Dirty 状态
 
 void Resource::markPartialDirty()
 {
-    if (m_dirtyState != ResourceFullDirty)
-        m_dirtyState = ResourcePartialDirty;
+    if (m_dirtyState != ResourceDirtyState::Full)
+        m_dirtyState = ResourceDirtyState::Partial;
 }
 
 void Resource::markFullDirty()
 {
-    m_dirtyState = ResourceFullDirty;
+    m_dirtyState = ResourceDirtyState::Full;
 }
 
 /// 同步准备
@@ -97,14 +71,14 @@ bool Resource::initializeGL(QOpenGLFunctions_3_3_Core* gl)
 
         // GPU Cache 当前不存在，因此 CPU 数据仍然需要一次完整初始化。
         // 下次 syncResource() 会再次进入 initializeGL()，FullDirty 同时保持调试语义正确。
-        m_dirtyState = ResourceFullDirty;
+        m_dirtyState = ResourceDirtyState::Full;
 
         qWarning() << "Resource initializeGL failed: partial GPU state rolled back:" << m_name;
         return false;
     }
 
     m_initialized = true;
-    m_dirtyState = ResourceClean;
+    m_dirtyState = ResourceDirtyState::Clean;
     return true;
 }
 
@@ -125,7 +99,7 @@ bool Resource::updateFullGL(QOpenGLFunctions_3_3_Core* gl)
     if (!onUpdateFullGL(gl))
         return false;
 
-    m_dirtyState = ResourceClean;
+    m_dirtyState = ResourceDirtyState::Clean;
     return true;
 }
 
@@ -146,7 +120,7 @@ bool Resource::updatePartialGL(QOpenGLFunctions_3_3_Core* gl)
     if (!onUpdatePartialGL(gl))
         return false;
 
-    m_dirtyState = ResourceClean;
+    m_dirtyState = ResourceDirtyState::Clean;
     return true;
 }
 
@@ -164,7 +138,7 @@ bool Resource::releaseGL(QOpenGLFunctions_3_3_Core* gl)
     onReleaseGL(gl);
 
     m_initialized = false;
-    m_dirtyState = ResourceClean;
+    m_dirtyState = ResourceDirtyState::Clean;
     return true;
 }
 
@@ -175,36 +149,16 @@ bool Resource::onPrepareSync()
     return true;
 }
 
-/// ResourceManager
-
-void Resource::setId(ResourceId id)
-{
-    m_id = id;
-}
-
 /// 调试名称
 
 const char* resourceTypeName(ResourceType type)
 {
     switch (type)
     {
-    case ResourceTypeGeometry:
+    case ResourceType::Geometry:
         return "Geometry";
-    case ResourceTypeTexture:
+    case ResourceType::Texture:
         return "Texture";
-    }
-
-    return "Unknown";
-}
-
-const char* resourceUpdatePolicyName(ResourceUpdatePolicy policy)
-{
-    switch (policy)
-    {
-    case ResourceUpdateStatic:
-        return "Static";
-    case ResourceUpdateDynamic:
-        return "Dynamic";
     }
 
     return "Unknown";
@@ -214,12 +168,12 @@ const char* resourceDirtyStateName(ResourceDirtyState state)
 {
     switch (state)
     {
-    case ResourceClean:
+    case ResourceDirtyState::Clean:
         return "Clean";
-    case ResourcePartialDirty:
-        return "PartialDirty";
-    case ResourceFullDirty:
-        return "FullDirty";
+    case ResourceDirtyState::Partial:
+        return "Partial";
+    case ResourceDirtyState::Full:
+        return "Full";
     }
 
     return "Unknown";

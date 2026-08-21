@@ -4,8 +4,6 @@
 
 LightManager::LightManager()
     : m_nextId(1)
-    , m_ambientColor(1.0f, 1.0f, 1.0f)
-    , m_ambientIntensity(0.1f) // 默认使用较弱环境光，避免没有直接光照的表面完全为黑色。
 {
 }
 
@@ -16,79 +14,34 @@ LightManager::~LightManager()
 
 /// 灯光管理
 
-LightId LightManager::add(Light* light)
+Light* LightManager::createLight(const QString& name)
 {
-    if (light == 0)
+    const LightId id = allocateId();
+
+    if (id == InvalidLightId)
     {
-        qWarning() << "LightManager add failed: light is null.";
-        return InvalidLightId;
+        qWarning() << "LightManager createLight failed: unable to allocate LightId:" << name;
+        return 0;
     }
 
-    if (light->id() != InvalidLightId)
-    {
-        qWarning() << "LightManager add failed: light already has an id:" << light->name();
-        return InvalidLightId;
-    }
+    Light* light = new Light(name);
 
-    const LightId id = m_nextId++;
     light->setId(id);
     m_lights[id] = light;
-    return id;
+
+    return light;
 }
 
 Light* LightManager::get(LightId id)
 {
     LightMap::iterator it = m_lights.find(id);
-
-    if (it == m_lights.end())
-        return 0;
-
-    return it->second;
+    return it != m_lights.end() ? it->second : 0;
 }
 
 const Light* LightManager::get(LightId id) const
 {
     LightMap::const_iterator it = m_lights.find(id);
-
-    if (it == m_lights.end())
-        return 0;
-
-    return it->second;
-}
-
-const Light* LightManager::firstEnabledDirectionalLight() const
-{
-    LightMap::const_iterator it = m_lights.begin();
-
-    while (it != m_lights.end())
-    {
-        const Light* light = it->second;
-
-        if (light->isEnabled() && light->type() == LightTypeDirectional)
-            return light;
-
-        ++it;
-    }
-
-    return 0;
-}
-
-void LightManager::enabledLights(std::vector<const Light*>& lights) const
-{
-    lights.clear();
-    lights.reserve(m_lights.size());
-
-    LightMap::const_iterator it = m_lights.begin();
-
-    while (it != m_lights.end())
-    {
-        const Light* light = it->second;
-
-        if (light != 0 && light->isEnabled())
-            lights.push_back(light);
-
-        ++it;
-    }
+    return it != m_lights.end() ? it->second : 0;
 }
 
 bool LightManager::contains(LightId id) const
@@ -111,8 +64,16 @@ bool LightManager::remove(LightId id)
         return false;
     }
 
-    delete it->second;
+    Light* light = it->second;
+
     m_lights.erase(it);
+
+    if (light != 0)
+    {
+        light->setId(InvalidLightId);
+        delete light;
+    }
+
     return true;
 }
 
@@ -122,45 +83,51 @@ void LightManager::clear()
 
     while (it != m_lights.end())
     {
-        delete it->second;
+        Light* light = it->second;
+
+        if (light != 0)
+        {
+            light->setId(InvalidLightId);
+            delete light;
+        }
+
         ++it;
     }
 
     m_lights.clear();
+    m_nextId = 1;
 }
 
-/// 环境光
+/// 灯光查询
 
-const QVector3D& LightManager::ambientColor() const
+void LightManager::enabledLights(std::vector<const Light*>& lights) const
 {
-    return m_ambientColor;
-}
+    lights.clear();
+    lights.reserve(m_lights.size());
 
-float LightManager::ambientIntensity() const
-{
-    return m_ambientIntensity;
-}
+    LightMap::const_iterator it = m_lights.begin();
 
-bool LightManager::setAmbientColor(const QVector3D& color)
-{
-    if (color.x() < 0.0f || color.y() < 0.0f || color.z() < 0.0f)
+    while (it != m_lights.end())
     {
-        qWarning() << "LightManager setAmbientColor failed: color components cannot be negative.";
-        return false;
-    }
+        const Light* light = it->second;
 
-    m_ambientColor = color;
-    return true;
+        if (light != 0 && light->isEnabled())
+            lights.push_back(light);
+
+        ++it;
+    }
 }
 
-bool LightManager::setAmbientIntensity(float intensity)
-{
-    if (intensity < 0.0f)
-    {
-        qWarning() << "LightManager setAmbientIntensity failed: intensity cannot be negative.";
-        return false;
-    }
+/// LightId
 
-    m_ambientIntensity = intensity;
-    return true;
+LightId LightManager::allocateId()
+{
+    while (m_nextId == InvalidLightId || contains(m_nextId))
+        ++m_nextId;
+
+    const LightId id = m_nextId;
+
+    ++m_nextId;
+
+    return id;
 }

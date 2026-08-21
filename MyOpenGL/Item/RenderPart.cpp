@@ -6,10 +6,11 @@ RenderPart::RenderPart(RenderPartId id)
 {
 }
 
-RenderPartId RenderPart::id() const
+RenderPart::~RenderPart()
 {
-    return m_id;
 }
+
+/// Geometry
 
 const Geometry* RenderPart::geometry() const
 {
@@ -20,6 +21,8 @@ void RenderPart::setGeometry(const Geometry* geometry)
 {
     m_geometry = geometry;
 }
+
+/// Bounds
 
 bool RenderPart::hasLocalBounds() const
 {
