@@ -6,7 +6,7 @@
 #include "MyOpenGL/Viewer/Modeling/PrimitiveMeshBuilder.h"
 
 CoordinateSystemGeometry::CoordinateSystemGeometry(const QString& name)
-    : BufferGeometry(name, ResourceUpdateStatic, Triangles)
+    : BufferGeometry(name, BufferUsage::Static, RenderType::Triangles)
     , m_axisLength(1.0f)
 {
     rebuildGeometry();
@@ -81,18 +81,25 @@ void CoordinateSystemGeometry::rebuildGeometry()
     /// PrimitiveMeshBuilder 数据格式：
     /// Position.xyz + Normal.xyz + Color.rgb
     ///
-    /// 当前系统 VertexColor Shader 只需要 Position 和 Color，
-    /// 因此 Normal 保存在 Buffer 中，但暂时不绑定到 Shader Attribute。
+    /// 这里完整绑定 MyOpenGL 的标准 Position / Normal / Color Attribute。
+    /// 系统 VertexColor Material 不会使用 Normal，但保留标准布局后，
+    /// 当前 Geometry 也可以直接用于需要基础光照的渲染路径。
     std::vector<GeometryVertexAttribute> attributes;
 
     GeometryVertexAttribute positionAttribute;
-    positionAttribute.location = 0;
+    positionAttribute.location = GeometryAttribute::Position;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = PrimitiveMeshBuilder::PositionOffset;
     attributes.push_back(positionAttribute);
 
+    GeometryVertexAttribute normalAttribute;
+    normalAttribute.location = GeometryAttribute::Normal;
+    normalAttribute.componentCount = 3;
+    normalAttribute.valueOffset = PrimitiveMeshBuilder::NormalOffset;
+    attributes.push_back(normalAttribute);
+
     GeometryVertexAttribute colorAttribute;
-    colorAttribute.location = 1;
+    colorAttribute.location = GeometryAttribute::Color;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = PrimitiveMeshBuilder::ColorOffset;
     attributes.push_back(colorAttribute);

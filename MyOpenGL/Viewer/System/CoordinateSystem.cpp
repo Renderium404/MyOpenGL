@@ -78,62 +78,83 @@ bool CoordinateSystem::buildRenderState(const RenderContext& context, RenderStat
     if (!m_visible || !context.isValid())
         return false;
 
-    /// 世界原点 -> 屏幕位置
+    /// 世界原点 -> NDC
 
-    const QVector4D clip = context.projection * context.view * QVector4D(m_worldOrigin, 1.0f);
+    const QVector4D cameraPoint = context.view * QVector4D(m_worldOrigin, 1.0f);
+    const QVector4D clip = context.projection * cameraPoint;
 
+    // Perspective 下 Camera 后方 Point 的 Clip W 为负。
+    // Parallel 下 W 固定为 1，因此同样可以通过这里。
     if (clip.w() <= 1.0e-8f)
         return false;
 
     const float ndcX = clip.x() / clip.w();
     const float ndcY = clip.y() / clip.w();
+    const float ndcZ = clip.z() / clip.w();
 
-    if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f)
+    // 世界坐标系原点不在当前可见裁剪空间时不绘制。
+    if (ndcX < -1.0f || ndcX > 1.0f ||
+        ndcY < -1.0f || ndcY > 1.0f ||
+        ndcZ < -1.0f || ndcZ > 1.0f)
+    {
+        return false;
+    }
+
+    /// 固定 Pixel -> 世界空间 Scale
+
+    bool invertible = false;
+    const QMatrix4x4 inverseProjection = context.projection.inverted(&invertible);
+
+    if (!invertible)
         return false;
 
-    const float pixelX = (ndcX * 0.5f + 0.5f) * context.viewportWidth;
-    const float pixelY = (ndcY * 0.5f + 0.5f) * context.viewportHeight;
+    // 一个屏幕 Pixel 在 NDC Y 方向对应 2 / ViewportHeight。
+    // 在坐标系原点当前深度上分别反投影两个相邻位置，
+    // 即可同时兼容 Perspective 和 Parallel Projection。
+    const float pixelNdcY = 2.0f / static_cast<float>(context.viewportHeight);
 
-    /// 独立 Viewport
+    QVector4D centerCamera = inverseProjection * QVector4D(ndcX, ndcY, ndcZ, 1.0f);
+    QVector4D onePixelCamera = inverseProjection * QVector4D(ndcX, ndcY + pixelNdcY, ndcZ, 1.0f);
 
-    const int viewportSize = static_cast<int>(m_pixelLength * 2.4f);
-    const int halfViewport = viewportSize / 2;
+    if (std::fabs(centerCamera.w()) <= 1.0e-8f ||
+        std::fabs(onePixelCamera.w()) <= 1.0e-8f)
+    {
+        return false;
+    }
 
-    const RenderViewport viewport(
-        static_cast<int>(pixelX) - halfViewport,
-        static_cast<int>(pixelY) - halfViewport,
-        viewportSize,
-        viewportSize);
+    centerCamera /= centerCamera.w();
+    onePixelCamera /= onePixelCamera.w();
 
-    if (!viewport.isValid())
+    const float worldUnitsPerPixel =
+        (onePixelCamera.toVector3D() - centerCamera.toVector3D()).length();
+
+    if (worldUnitsPerPixel <= 1.0e-8f)
         return false;
 
-    /// Camera Orientation
+    const float worldAxisLength = worldUnitsPerPixel * m_pixelLength;
 
-    QVector3D forward = context.cameraForward.normalized();
-    QVector3D up = context.cameraUp.normalized();
-
-    QVector3D right = QVector3D::crossProduct(forward, up);
-
-    if (right.lengthSquared() <= 1.0e-12f)
-        return false;
-
-    right.normalize();
-    up = QVector3D::crossProduct(right, forward).normalized();
+    /// RenderState
 
     state = RenderState();
 
+    // Geometry 本身使用单位轴长。
+    // Model 将它放到真实世界原点，并按当前深度缩放到固定 Pixel 长度。
     state.model.setToIdentity();
+    state.model.translate(m_worldOrigin);
+    state.model.scale(worldAxisLength);
 
-    state.view.setToIdentity();
-    state.view.lookAt(-forward * 3.0f, QVector3D(0.0f, 0.0f, 0.0f), up);
+    // CoordinateSystem 是真实世界空间系统对象，
+    // 使用主 Camera 的 View / Projection，而不是建立独立 Overlay Camera。
+    state.view = context.view;
+    state.projection = context.projection;
 
-    const float halfRange = static_cast<float>(viewportSize) / (2.0f * m_pixelLength);
+    // 使用主 Viewer Viewport，使坐标轴正确参与场景深度关系。
+    state.viewport = RenderViewport(
+        0,
+        0,
+        context.viewportWidth,
+        context.viewportHeight);
 
-    state.projection.setToIdentity();
-    state.projection.ortho(-halfRange, halfRange, -halfRange, halfRange, 0.1f, 10.0f);
-
-    state.viewport = viewport;
     state.depthTestEnabled = true;
     state.depthWriteEnabled = true;
 

@@ -18,6 +18,16 @@ enum class BufferUsage
     Dynamic  // Buffer 数据会持续或频繁变化，对应 GL_DYNAMIC_DRAW。
 };
 
+/// MyOpenGL 统一 Vertex Attribute Location。
+/// 外部 Geometry Adapter 必须将外部数据语义映射到这些固定 Location。
+namespace GeometryAttribute
+{
+const GLuint Position = 0; // Vertex Position。
+const GLuint Normal = 1;   // Vertex Normal。
+const GLuint TexCoord = 2; // Vertex Texture Coordinate。
+const GLuint Color = 3;    // Vertex Color。
+}
+
 /// 获取 Geometry 调试名称。
 const char* renderTypeName(RenderType type);
 const char* bufferUsageName(BufferUsage usage);
@@ -36,7 +46,7 @@ public:
     virtual RenderType renderType() const = 0;
 
     /// Vertex Layout
-    /// 检查当前 Vertex Layout 是否满足指定 Shader Attribute 要求。
+    /// 检查当前 Vertex Layout 是否满足指定 MyOpenGL Attribute Location 和分量数量。
     virtual bool hasAttribute(GLuint location, GLint componentCount) const = 0;
 
     /// 绘制同步

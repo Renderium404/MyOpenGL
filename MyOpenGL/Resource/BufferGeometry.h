@@ -12,7 +12,7 @@
 /// valueOffset 使用 GLfloat 数量作为单位，而不是 Byte。
 struct GeometryVertexAttribute
 {
-    GLuint location;      // Shader Attribute Location。
+    GLuint location;      // MyOpenGL 统一 Vertex Attribute Location。
     GLint componentCount; // Attribute 分量数量，例如 vec3 = 3。
     int valueOffset;      // Attribute 在一个 Vertex 中的 GLfloat 偏移。
 };

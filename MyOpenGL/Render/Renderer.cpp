@@ -432,6 +432,7 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
         return false;
     }
 
+    // Material 禁用光照时完全绕过 Light Pipeline。
     if (!material->lightingEnabled())
     {
         switch (material->surfaceMode())
@@ -443,7 +444,8 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
             return drawVertexColorGeometry(geometry, state);
         }
 
-        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:" << material->name();
+        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:"
+                   << material->name();
         return false;
     }
 
@@ -471,7 +473,7 @@ bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& colo
         return false;
     }
 
-    if (!geometry->hasAttribute(0, 3))
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3))
     {
         qWarning() << "Renderer drawColorGeometry failed: position layout is required:"
                    << geometry->name();
@@ -529,7 +531,8 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
         return false;
     }
 
-    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(3, 3))
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3) ||
+        !geometry->hasAttribute(GeometryAttribute::Color, 3))
     {
         qWarning() << "Renderer drawVertexColorGeometry failed: position + color layout is required:"
                    << geometry->name();
@@ -586,7 +589,8 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         return false;
     }
 
-    if (!geometry->hasAttribute(0, 3) || !geometry->hasAttribute(1, 3))
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3) ||
+        !geometry->hasAttribute(GeometryAttribute::Normal, 3))
     {
         qWarning() << "Renderer drawLitGeometry failed: position + normal layout is required:"
                    << geometry->name();
@@ -602,9 +606,9 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         return false;
     }
 
-    if (useVertexColor && !geometry->hasAttribute(3, 3))
+    if (useVertexColor && !geometry->hasAttribute(GeometryAttribute::Color, 3))
     {
-        qWarning() << "Renderer drawLitGeometry failed: VertexColor requires color3 at attribute location 3:"
+        qWarning() << "Renderer drawLitGeometry failed: VertexColor requires color layout:"
                    << geometry->name();
         return false;
     }
@@ -640,8 +644,8 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         if (light == 0)
             continue;
 
-        // Renderer 只消费调用者传入的灯光集合。
-        // 即使 Light 被标记为 Disabled，只要被传入，本次 Draw 仍然使用它。
+        // Renderer 不检查 Light::isEnabled()。
+        // 只要 Light 被调用者放入 lights，本次 Draw 就使用它。
         if (light->lightType() == LightType::Ambient)
         {
             ambientLight += light->color() * light->intensity();
@@ -798,7 +802,7 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
         return false;
     }
 
-    if (!geometry->hasAttribute(0, 3))
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3))
     {
         qWarning() << "Renderer drawWireGeometry failed: position layout is required:"
                    << geometry->name();
@@ -904,3 +908,5 @@ GLenum Renderer::primitiveMode(const Geometry* geometry) const
 
     return GL_TRIANGLES;
 }
+
+

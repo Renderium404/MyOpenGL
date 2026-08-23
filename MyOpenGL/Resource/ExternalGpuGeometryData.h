@@ -20,7 +20,7 @@ struct ExternalGpuVertexBufferView
 /// Attribute Layout 由 MyOpenGL VAO 保存，但实际 Vertex 数据位于外部 VBO。
 struct ExternalGpuVertexAttribute
 {
-    GLuint location;        // Shader Attribute Location。
+    GLuint location;        // MyOpenGL 统一 Vertex Attribute Location，由 Adapter 按数据语义映射。
     GLint componentCount;   // Attribute 分量数量，例如 position.xyz = 3。
     int bufferIndex;        // Attribute 所属 ExternalGpuVertexBufferView。
     std::size_t byteOffset; // Attribute 在一个 Vertex Element 中的字节偏移。
@@ -43,7 +43,7 @@ struct ExternalGpuGeometryView
 {
     RenderType renderType;                                  // 当前几何绘制类型。
     std::vector<ExternalGpuVertexBufferView> vertexBuffers; // 外部 GPU Vertex Streams。
-    std::vector<ExternalGpuVertexAttribute> attributes;     // Shader Attribute 到外部 VBO 的映射。
+    std::vector<ExternalGpuVertexAttribute> attributes;     // MyOpenGL Vertex Attribute 到外部 VBO 的映射。
     ExternalGpuIndexBufferView indices;                     // 外部 GPU Index Buffer。
 };
 

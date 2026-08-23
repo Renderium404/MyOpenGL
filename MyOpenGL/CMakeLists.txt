@@ -77,7 +77,7 @@ target_link_libraries(MyOpenGLCore
 # ============================================================
 
 # Core 保持不依赖 Qt Widgets。
-# Viewer 负责窗口、输入、Scene 渲染编排以及后续 Grid、Axis、
+# Viewer 负责窗口、输入、Item 渲染编排以及后续 Grid、Axis、
 # ViewNavigation 等 Viewer 级系统显示对象。
 add_library(MyOpenGLViewer STATIC
     Viewer/OpenGLViewerWidget.cpp

@@ -3,7 +3,7 @@
 #include <QDebug>
 
 GridPlaneGeometry::GridPlaneGeometry(const QString& name)
-    : BufferGeometry(name, ResourceUpdateStatic, Lines)
+    : BufferGeometry(name, BufferUsage::Static, RenderType::Lines)
     , m_orientation(GridPlaneXZ)
     , m_halfSize(10.0f) // 默认网格覆盖 -10 到 +10，共 20 个局部坐标单位。
     , m_spacing(1.0f)   // 默认每 1 个局部坐标单位生成一条平行网格线。
@@ -112,13 +112,13 @@ void GridPlaneGeometry::rebuildGeometry()
     std::vector<GeometryVertexAttribute> attributes;
 
     GeometryVertexAttribute positionAttribute;
-    positionAttribute.location = 0;
+    positionAttribute.location = GeometryAttribute::Position;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
     GeometryVertexAttribute colorAttribute;
-    colorAttribute.location = 1;
+    colorAttribute.location = GeometryAttribute::Color;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;
     attributes.push_back(colorAttribute);

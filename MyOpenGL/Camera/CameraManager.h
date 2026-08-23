@@ -2,7 +2,7 @@
 #define CAMERAMANAGER_H
 
 #include "Camera.h"
-#include "MyOpenGL/Scene/AxisAlignedBoundingBox.h"
+#include "MyOpenGL/Item/AxisAlignedBoundingBox.h"
 
 #include <cstddef>
 #include <map>

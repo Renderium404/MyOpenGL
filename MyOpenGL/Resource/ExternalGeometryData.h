@@ -22,7 +22,7 @@ struct ExternalVertexBufferView
 /// 外部 Vertex Attribute 到 Vertex Stream 的映射。
 struct ExternalVertexAttribute
 {
-    GLuint location;        // Shader Attribute Location。
+    GLuint location;        // MyOpenGL 统一 Vertex Attribute Location，由 Adapter 按数据语义映射。
     GLint componentCount;   // Attribute 分量数量。
     int bufferIndex;        // Attribute 所属 Vertex Stream。
     std::size_t byteOffset; // Attribute 在一个 Vertex Element 内的字节偏移。
@@ -46,7 +46,7 @@ struct ExternalGeometryDataView
     int vertexCount;                                      // 当前 Geometry Vertex 总数量。
     RenderType renderType;                                // 当前几何绘制类型。
     std::vector<ExternalVertexBufferView> vertexBuffers;  // 外部 Geometry 的 Vertex Streams。
-    std::vector<ExternalVertexAttribute> attributes;      // Shader Attribute Mapping。
+    std::vector<ExternalVertexAttribute> attributes;      // 外部数据到 MyOpenGL Vertex Attribute 的映射。
     ExternalIndexBufferView indices;                      // 当前 Index Buffer。
 };
 

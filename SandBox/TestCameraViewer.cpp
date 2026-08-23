@@ -1,4 +1,6 @@
 #include <QApplication>
+#include <QDebug>
+#include <QKeyEvent>
 #include <QLabel>
 #include <QMouseEvent>
 #include <QWheelEvent>
@@ -6,11 +8,11 @@
 #include <vector>
 
 #include "MyOpenGL/Camera/Camera.h"
+#include "MyOpenGL/Item/AxisAlignedBoundingBox.h"
+#include "MyOpenGL/Item/RenderItem.h"
+#include "MyOpenGL/Item/RenderPart.h"
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
-#include "MyOpenGL/Scene/AxisAlignedBoundingBox.h"
-#include "MyOpenGL/Scene/RenderItem.h"
-#include "MyOpenGL/Scene/RenderPart.h"
 #include "MyOpenGL/Viewer/OpenGLViewerWidget.h"
 
 class CameraTestViewer : public OpenGLViewerWidget
@@ -66,79 +68,152 @@ protected:
         updateInformation();
     }
 
+    void keyPressEvent(QKeyEvent* event) override
+    {
+        OpenGLViewerWidget::keyPressEvent(event);
+        updateInformation();
+    }
+
 private:
     void buildTestResources()
     {
         buildCubeGeometry();
 
-        m_vertexColorMaterial = new Material("CameraTestVertexColor");
-        m_vertexColorMaterial->setVertexColor();
+        /// Camera Test 只测试 Camera / Viewer 行为。
+        /// 使用无光照 VertexColor，避免测试结果受到场景 Light 影响。
 
-        materialManager().add(m_vertexColorMaterial);
+        m_vertexColorMaterial =
+            materialManager().createMaterial("CameraTestVertexColor");
+
+        if (m_vertexColorMaterial == 0)
+        {
+            qWarning() << "CameraTestViewer buildTestResources failed: unable to create Material.";
+            return;
+        }
+
+        if (!m_vertexColorMaterial->setSurfaceMode(SurfaceMode::VertexColor))
+        {
+            qWarning() << "CameraTestViewer buildTestResources failed: unable to set VertexColor Material.";
+            return;
+        }
+
+        m_vertexColorMaterial->setLightingEnabled(false);
     }
 
     void buildTestItems()
     {
+        if (m_cubeGeometry == 0 || m_vertexColorMaterial == 0)
+            return;
+
         const AxisAlignedBoundingBox unitBounds(
             QVector3D(-0.5f, -0.5f, -0.5f),
             QVector3D(0.5f, 0.5f, 0.5f));
 
-        RenderItem* mainBox = scene().createItem("MainBox");
-        mainBox->setMaterial(m_vertexColorMaterial);
-        mainBox->transform().setPosition(QVector3D(0.0f, 1.0f, 0.0f));
-        mainBox->transform().setScale(QVector3D(4.0f, 2.0f, 2.0f));
-        mainBox->setDisplayMode(RenderItemDisplayShadedWithEdges);
-        mainBox->setEdgeColor(QVector4D(0.05f, 0.05f, 0.05f, 1.0f));
+        /// Main Box
 
-        RenderPart* mainBoxPart = mainBox->createPart(0);
-        mainBoxPart->setGeometry(m_cubeGeometry);
-        mainBoxPart->setLocalBounds(unitBounds);
+        RenderItem* mainBox =
+            itemManager().createItem("MainBox");
 
-        RenderItem* xMarker = scene().createItem("PositiveXMarker");
-        xMarker->setMaterial(m_vertexColorMaterial);
-        xMarker->transform().setPosition(QVector3D(3.2f, 0.5f, 0.0f));
-        xMarker->transform().setScale(QVector3D(1.2f, 1.0f, 1.0f));
-        xMarker->setDisplayMode(RenderItemDisplayShadedWithEdges);
+        if (mainBox != 0)
+        {
+            mainBox->setMaterial(m_vertexColorMaterial);
+            mainBox->transform().setPosition(QVector3D(0.0f, 1.0f, 0.0f));
+            mainBox->transform().setScale(QVector3D(4.0f, 2.0f, 2.0f));
 
-        RenderPart* xMarkerPart = xMarker->createPart(0);
-        xMarkerPart->setGeometry(m_cubeGeometry);
-        xMarkerPart->setLocalBounds(unitBounds);
+            mainBox->setDisplayMode(DisplayMode::ShadedWithEdges);
+            mainBox->setEdgeColor(QVector4D(0.05f, 0.05f, 0.05f, 1.0f));
 
-        RenderItem* yMarker = scene().createItem("PositiveYMarker");
-        yMarker->setMaterial(m_vertexColorMaterial);
-        yMarker->transform().setPosition(QVector3D(-1.0f, 3.0f, 0.0f));
-        yMarker->transform().setScale(QVector3D(1.0f, 2.0f, 1.0f));
-        yMarker->setDisplayMode(RenderItemDisplayShadedWithEdges);
+            RenderPart* part = mainBox->createPart();
 
-        RenderPart* yMarkerPart = yMarker->createPart(0);
-        yMarkerPart->setGeometry(m_cubeGeometry);
-        yMarkerPart->setLocalBounds(unitBounds);
+            if (part != 0)
+            {
+                part->setGeometry(m_cubeGeometry);
+                part->setLocalBounds(unitBounds);
+            }
+        }
 
-        RenderItem* zMarker = scene().createItem("PositiveZMarker");
-        zMarker->setMaterial(m_vertexColorMaterial);
-        zMarker->transform().setPosition(QVector3D(-1.0f, 0.5f, 3.0f));
-        zMarker->transform().setScale(QVector3D(1.0f, 1.0f, 2.0f));
-        zMarker->setDisplayMode(RenderItemDisplayShadedWithEdges);
+        /// +X Marker
 
-        RenderPart* zMarkerPart = zMarker->createPart(0);
-        zMarkerPart->setGeometry(m_cubeGeometry);
-        zMarkerPart->setLocalBounds(unitBounds);
+        RenderItem* xMarker =
+            itemManager().createItem("PositiveXMarker");
+
+        if (xMarker != 0)
+        {
+            xMarker->setMaterial(m_vertexColorMaterial);
+            xMarker->transform().setPosition(QVector3D(3.2f, 0.5f, 0.0f));
+            xMarker->transform().setScale(QVector3D(1.2f, 1.0f, 1.0f));
+            xMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
+
+            RenderPart* part = xMarker->createPart();
+
+            if (part != 0)
+            {
+                part->setGeometry(m_cubeGeometry);
+                part->setLocalBounds(unitBounds);
+            }
+        }
+
+        /// +Y Marker
+
+        RenderItem* yMarker =
+            itemManager().createItem("PositiveYMarker");
+
+        if (yMarker != 0)
+        {
+            yMarker->setMaterial(m_vertexColorMaterial);
+            yMarker->transform().setPosition(QVector3D(-1.0f, 3.0f, 0.0f));
+            yMarker->transform().setScale(QVector3D(1.0f, 2.0f, 1.0f));
+            yMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
+
+            RenderPart* part = yMarker->createPart();
+
+            if (part != 0)
+            {
+                part->setGeometry(m_cubeGeometry);
+                part->setLocalBounds(unitBounds);
+            }
+        }
+
+        /// +Z Marker
+
+        RenderItem* zMarker =
+            itemManager().createItem("PositiveZMarker");
+
+        if (zMarker != 0)
+        {
+            zMarker->setMaterial(m_vertexColorMaterial);
+            zMarker->transform().setPosition(QVector3D(-1.0f, 0.5f, 3.0f));
+            zMarker->transform().setScale(QVector3D(1.0f, 1.0f, 2.0f));
+            zMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
+
+            RenderPart* part = zMarker->createPart();
+
+            if (part != 0)
+            {
+                part->setGeometry(m_cubeGeometry);
+                part->setLocalBounds(unitBounds);
+            }
+        }
     }
 
     void buildCubeGeometry()
     {
-        m_cubeGeometry = new BufferGeometry("CameraTestCube", ResourceUpdateStatic, Triangles);
+        m_cubeGeometry =
+            new BufferGeometry(
+                "CameraTestCube",
+                BufferUsage::Static,
+                RenderType::Triangles);
 
         std::vector<GeometryVertexAttribute> attributes;
 
         GeometryVertexAttribute position;
-        position.location = 0;
+        position.location = GeometryAttribute::Position;
         position.componentCount = 3;
         position.valueOffset = 0;
         attributes.push_back(position);
 
         GeometryVertexAttribute color;
-        color.location = 1;
+        color.location = GeometryAttribute::Color;
         color.componentCount = 3;
         color.valueOffset = 3;
         attributes.push_back(color);
@@ -194,13 +269,31 @@ private:
             20, 21, 22,  20, 22, 23
         };
 
-        const int vertexValueCount = sizeof(vertices) / sizeof(vertices[0]);
-        const int indexCount = sizeof(indices) / sizeof(indices[0]);
+        const int vertexValueCount =
+            sizeof(vertices) /
+            sizeof(vertices[0]);
 
-        m_cubeGeometry->setVertexData(std::vector<GLfloat>(vertices, vertices + vertexValueCount));
-        m_cubeGeometry->setIndexData(std::vector<GLuint>(indices, indices + indexCount));
+        const int indexCount =
+            sizeof(indices) /
+            sizeof(indices[0]);
 
-        resourceManager().add(m_cubeGeometry);
+        m_cubeGeometry->setVertexData(
+            std::vector<GLfloat>(
+                vertices,
+                vertices + vertexValueCount));
+
+        m_cubeGeometry->setIndexData(
+            std::vector<GLuint>(
+                indices,
+                indices + indexCount));
+
+        if (resourceManager().adopt(m_cubeGeometry) == InvalidResourceId)
+        {
+            qWarning() << "CameraTestViewer buildCubeGeometry failed: unable to adopt Geometry.";
+
+            delete m_cubeGeometry;
+            m_cubeGeometry = 0;
+        }
     }
 
     void updateInformation()
@@ -208,52 +301,70 @@ private:
         if (m_informationLabel == 0)
             return;
 
-        const Camera* camera = cameraManager().activeCamera();
+        const Camera* camera =
+            cameraManager().activeCamera();
 
         if (camera == 0)
         {
-            m_informationLabel->setText("Camera does not exist.");
+            m_informationLabel->setText(
+                "Camera does not exist.");
+
             m_informationLabel->adjustSize();
             return;
         }
 
         const QString projectionName =
-            camera->projectionType() == ProjectionType::Perspective ? "Perspective" : "Parallel";
+            camera->projectionType() == ProjectionType::Perspective
+            ? "Perspective"
+            : "Parallel";
 
         QString text;
-        text += QString("Projection: %1\n").arg(projectionName);
 
-        text += QString("Position: (%1, %2, %3)\n")
+        text +=
+            QString("Projection: %1\n")
+            .arg(projectionName);
+
+        text +=
+            QString("Position: (%1, %2, %3)\n")
             .arg(camera->position().x(), 0, 'f', 2)
             .arg(camera->position().y(), 0, 'f', 2)
             .arg(camera->position().z(), 0, 'f', 2);
 
-        text += QString("Forward:  (%1, %2, %3)\n")
+        text +=
+            QString("Forward:  (%1, %2, %3)\n")
             .arg(camera->forward().x(), 0, 'f', 2)
             .arg(camera->forward().y(), 0, 'f', 2)
             .arg(camera->forward().z(), 0, 'f', 2);
 
-        text += QString("Up:       (%1, %2, %3)\n")
+        text +=
+            QString("Up:       (%1, %2, %3)\n")
             .arg(camera->up().x(), 0, 'f', 2)
             .arg(camera->up().y(), 0, 'f', 2)
             .arg(camera->up().z(), 0, 'f', 2);
 
-        text += QString("Right:    (%1, %2, %3)\n")
+        text +=
+            QString("Right:    (%1, %2, %3)\n")
             .arg(camera->right().x(), 0, 'f', 2)
             .arg(camera->right().y(), 0, 'f', 2)
             .arg(camera->right().z(), 0, 'f', 2);
 
         if (cameraManager().hasViewBounds())
         {
-            const QVector3D center = cameraManager().viewBounds().center();
-            const float distance = (camera->position() - center).length();
+            const QVector3D center =
+                cameraManager().viewBounds().center();
 
-            text += QString("View Center: (%1, %2, %3)\n")
+            const float distance =
+                (camera->position() - center).length();
+
+            text +=
+                QString("View Center: (%1, %2, %3)\n")
                 .arg(center.x(), 0, 'f', 2)
                 .arg(center.y(), 0, 'f', 2)
                 .arg(center.z(), 0, 'f', 2);
 
-            text += QString("Distance To View Center: %1\n").arg(distance, 0, 'f', 3);
+            text +=
+                QString("Distance To View Center: %1\n")
+                .arg(distance, 0, 'f', 3);
         }
         else
         {
@@ -261,12 +372,33 @@ private:
         }
 
         if (camera->projectionType() == ProjectionType::Perspective)
-            text += QString("FOV: %1\n").arg(camera->perspectiveFieldOfView(), 0, 'f', 2);
+        {
+            text +=
+                QString("FOV: %1\n")
+                .arg(
+                    camera->perspectiveFieldOfView(),
+                    0,
+                    'f',
+                    2);
+        }
         else
-            text += QString("Parallel Height: %1\n").arg(camera->parallelHeight(), 0, 'f', 3);
+        {
+            text +=
+                QString("Parallel Height: %1\n")
+                .arg(
+                    camera->parallelHeight(),
+                    0,
+                    'f',
+                    3);
+        }
 
-        text += QString("Near: %1\n").arg(camera->nearPlane(), 0, 'f', 3);
-        text += QString("Far:  %1\n").arg(camera->farPlane(), 0, 'f', 3);
+        text +=
+            QString("Near: %1\n")
+            .arg(camera->nearPlane(), 0, 'f', 3);
+
+        text +=
+            QString("Far:  %1\n")
+            .arg(camera->farPlane(), 0, 'f', 3);
 
         text += "\nMouse:\n";
         text += "  Left Drag   : Orbit\n";
@@ -275,7 +407,7 @@ private:
 
         text += "\nKeyboard:\n";
         text += "  P : Perspective / Parallel\n";
-        text += "  F : Fit Scene";
+        text += "  F : Fit Items";
 
         m_informationLabel->setText(text);
         m_informationLabel->adjustSize();

@@ -1,7 +1,11 @@
 #include "OpenGLViewerWidget.h"
 
+#include <QAction>
+#include <QContextMenuEvent>
+#include <QCursor>
 #include <QDebug>
 #include <QKeyEvent>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
@@ -11,14 +15,18 @@
 #include <cmath>
 
 #include "MyOpenGL/Camera/Camera.h"
+#include "MyOpenGL/Item/RenderItem.h"
+#include "MyOpenGL/Item/RenderPart.h"
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/Geometry.h"
-#include "MyOpenGL/Scene/RenderItem.h"
-#include "MyOpenGL/Scene/RenderPart.h"
+#include "MyOpenGL/Viewer/Modeling/PrimitiveMeshBuilder.h"
 
 OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
     : QOpenGLWidget(parent)
     , m_systemVertexColorMaterial(0)
+    , m_navigationAnchorGeometry("NavigationAnchor", BufferUsage::Static, RenderType::Triangles)
+    , m_navigationAnchorVisible(false)
+    , m_navigationAnchorPixelSize(28)
     , m_hasNavigationAnchor(false)
     , m_glReady(false)
     , m_releasePerformed(false)
@@ -33,10 +41,31 @@ OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
 
     setFocusPolicy(Qt::StrongFocus);
 
-    Camera* camera = new Camera();
-    m_cameraManager.add(camera);
+    // Viewer 内统一使用十字鼠标样式。
+    setCursor(QCursor(Qt::CrossCursor));
+
+    /// 默认 Camera
+
+    Camera* camera = m_cameraManager.createCamera("MainCamera");
+
+    if (camera == 0)
+        qWarning() << "OpenGLViewerWidget construction failed: unable to create MainCamera.";
+
+    if (!buildNavigationAnchorGeometry())
+        qWarning() << "OpenGLViewerWidget construction failed: unable to build NavigationAnchor Geometry.";
 
     buildViewerResources();
+
+    m_navigationAnchorHideTimer.setSingleShot(true);
+
+    connect(&m_navigationAnchorHideTimer, &QTimer::timeout, this, [this]()
+    {
+        if (m_hasNavigationAnchor)
+            return;
+
+        m_navigationAnchorVisible = false;
+        update();
+    });
 }
 
 OpenGLViewerWidget::~OpenGLViewerWidget()
@@ -87,15 +116,39 @@ const CameraManager& OpenGLViewerWidget::cameraManager() const
     return m_cameraManager;
 }
 
-Scene& OpenGLViewerWidget::scene()
+ItemManager& OpenGLViewerWidget::itemManager()
 {
-    return m_scene;
+    return m_itemManager;
 }
 
-const Scene& OpenGLViewerWidget::scene() const
+const ItemManager& OpenGLViewerWidget::itemManager() const
 {
-    return m_scene;
+    return m_itemManager;
 }
+
+/// Viewer 系统显示
+
+CoordinateSystem& OpenGLViewerWidget::coordinateSystem()
+{
+    return m_coordinateSystem;
+}
+
+const CoordinateSystem& OpenGLViewerWidget::coordinateSystem() const
+{
+    return m_coordinateSystem;
+}
+
+ViewNavigation& OpenGLViewerWidget::viewNavigation()
+{
+    return m_viewNavigation;
+}
+
+const ViewNavigation& OpenGLViewerWidget::viewNavigation() const
+{
+    return m_viewNavigation;
+}
+
+/// Viewer 状态
 
 bool OpenGLViewerWidget::viewerGLReady() const
 {
@@ -115,9 +168,20 @@ void OpenGLViewerWidget::initializeGL()
         return;
     }
 
+    // QOpenGLWidget 的 Context 可能在 Widget 生命周期中发生重建。
+    // Context 销毁前必须先释放 Resource 和 Renderer 持有的 GPU Object。
+    if (context() != 0)
+    {
+        connect(context(), &QOpenGLContext::aboutToBeDestroyed, this, [this]()
+        {
+            releaseViewerGL();
+        }, Qt::DirectConnection);
+    }
+
     if (!m_renderer.initialize(&m_openGLContext))
     {
         qWarning() << "OpenGLViewerWidget initializeGL failed: Renderer initialization failed.";
+        releaseViewerGL();
         return;
     }
 
@@ -140,7 +204,9 @@ void OpenGLViewerWidget::initializeGL()
     m_renderer.setClearColor(QVector4D(0.86f, 0.91f, 0.97f, 1.0f));
 
     m_glReady = true;
-    fitSceneToView();
+
+    // Viewer 初次建立 OpenGL 后，如果已经存在 Item，则自动适配一次观察范围。
+    fitItemsToView();
 }
 
 void OpenGLViewerWidget::resizeGL(int width, int height)
@@ -159,11 +225,15 @@ void OpenGLViewerWidget::paintGL()
     if (gl == 0)
         return;
 
+    /// Resource GPU 同步
+
     if (!m_resourceManager.syncAll(gl))
     {
         qWarning() << "OpenGLViewerWidget paintGL failed: Resource synchronization failed.";
         return;
     }
+
+    /// Frame Context
 
     RenderContext renderContext;
 
@@ -173,19 +243,39 @@ void OpenGLViewerWidget::paintGL()
         return;
     }
 
+    /// 场景灯光
+    ///
+    /// Viewer 只在这里根据 Light::isEnabled() 构造正常场景使用的灯光集合。
+    /// Renderer 不检查 Light::isEnabled()，只使用调用者明确传入的 Light。
+
+    std::vector<const Light*> lights;
+    m_lightManager.enabledLights(lights);
+
     if (!m_renderer.beginFrame(renderContext))
         return;
 
-    if (!drawScene(renderContext))
+    /// 用户 Item
+
+    if (!drawItems(renderContext, lights))
     {
-        qWarning() << "OpenGLViewerWidget paintGL failed: Scene drawing failed.";
+        qWarning() << "OpenGLViewerWidget paintGL failed: Item drawing failed.";
         m_renderer.endFrame();
         return;
     }
 
-    /// 世界坐标系
+    /// Viewer 系统显示
+    ///
+    /// 系统 Material 禁用光照，因此这里显式传入空灯光集合。
+    /// 系统对象不会依赖当前场景 Light Selection。
 
-    if (m_coordinateSystem.isVisible())
+    const std::vector<const Light*> noLights;
+
+    /// 世界坐标系
+    ///
+    /// CoordinateSystem 使用世界原点确定屏幕位置，
+    /// 作为固定 Pixel 大小的 Viewer 系统显示对象绘制。
+
+    if (m_coordinateSystem.isVisible() && m_systemVertexColorMaterial != 0)
     {
         RenderState coordinateState;
 
@@ -195,17 +285,38 @@ void OpenGLViewerWidget::paintGL()
             {
                 qWarning() << "OpenGLViewerWidget paintGL failed: CoordinateSystem depth clearing failed.";
             }
-            else
+            else if (!m_renderer.drawGeometry(&m_coordinateSystem.geometry(), m_systemVertexColorMaterial, coordinateState, noLights))
             {
-                if (!m_renderer.drawGeometry(&m_coordinateSystem.geometry(), m_systemVertexColorMaterial, coordinateState))
-                    qWarning() << "OpenGLViewerWidget paintGL failed: CoordinateSystem drawing failed.";
+                qWarning() << "OpenGLViewerWidget paintGL failed: CoordinateSystem drawing failed.";
+            }
+        }
+    }
+
+    /// Camera Navigation 锚点
+
+    if (m_navigationAnchorVisible && m_systemVertexColorMaterial != 0)
+    {
+        RenderState anchorState;
+
+        if (buildNavigationAnchorRenderState(renderContext, anchorState))
+        {
+            if (!m_renderer.clearDepth(anchorState.viewport))
+            {
+                qWarning() << "OpenGLViewerWidget paintGL failed: NavigationAnchor depth clearing failed.";
+            }
+            else if (!m_renderer.drawGeometry(&m_navigationAnchorGeometry, m_systemVertexColorMaterial, anchorState, noLights))
+            {
+                qWarning() << "OpenGLViewerWidget paintGL failed: NavigationAnchor drawing failed.";
             }
         }
     }
 
     /// 右上角视图导航
+    ///
+    /// ViewNavigation 是独立 Overlay，拥有自己的局部 Viewport。
+    /// 为避免被主场景 Depth 遮挡，只清除它自己的 Viewport Depth。
 
-    if (m_viewNavigation.isVisible())
+    if (m_viewNavigation.isVisible() && m_systemVertexColorMaterial != 0)
     {
         RenderState navigationState;
 
@@ -217,10 +328,10 @@ void OpenGLViewerWidget::paintGL()
             }
             else
             {
-                if (!m_renderer.drawGeometry(&m_viewNavigation.faceGeometry(), m_systemVertexColorMaterial, navigationState))
+                if (!m_renderer.drawGeometry(&m_viewNavigation.faceGeometry(), m_systemVertexColorMaterial, navigationState, noLights))
                     qWarning() << "OpenGLViewerWidget paintGL failed: ViewNavigation face drawing failed.";
 
-                if (!m_renderer.drawGeometry(&m_viewNavigation.axisGeometry(), m_systemVertexColorMaterial, navigationState))
+                if (!m_renderer.drawGeometry(&m_viewNavigation.axisGeometry(), m_systemVertexColorMaterial, navigationState, noLights))
                     qWarning() << "OpenGLViewerWidget paintGL failed: ViewNavigation axis drawing failed.";
             }
         }
@@ -229,58 +340,81 @@ void OpenGLViewerWidget::paintGL()
     m_renderer.endFrame();
 }
 
+/// OpenGL 生命周期
+
 void OpenGLViewerWidget::releaseViewerGL()
 {
     if (m_releasePerformed)
         return;
 
     m_releasePerformed = true;
+    m_glReady = false;
 
-    if (context() != 0)
+    QOpenGLContext* viewerContext = context();
+
+    if (viewerContext == 0 || !m_openGLContext.isInitialized())
+        return;
+
+    makeCurrent();
+
+    if (QOpenGLContext::currentContext() != viewerContext)
     {
-        makeCurrent();
-
-        if (QOpenGLContext::currentContext() == context())
-        {
-            QOpenGLFunctions_3_3_Core* gl = m_openGLContext.gl();
-
-            if (gl != 0)
-            {
-                if (!m_resourceManager.releaseGL(gl))
-                    qWarning() << "OpenGLViewerWidget releaseViewerGL: some Resources failed to release.";
-
-                m_renderer.release();
-            }
-
-            doneCurrent();
-        }
+        doneCurrent();
+        return;
     }
 
-    m_glReady = false;
+    QOpenGLFunctions_3_3_Core* gl = m_openGLContext.gl();
+
+    if (gl != 0)
+    {
+        if (!m_resourceManager.releaseGL(gl))
+            qWarning() << "OpenGLViewerWidget releaseViewerGL: some Resources failed to release.";
+
+        m_renderer.release();
+    }
+
+    doneCurrent();
 }
 
 /// Viewer 系统资源
 
 void OpenGLViewerWidget::buildViewerResources()
 {
-    /// 系统模型统一使用顶点颜色 Material。
-    /// Material 由 MaterialManager 管理对象生命周期。
+    /// 系统 Material
+    ///
+    /// 坐标系和导航器统一使用 VertexColor，
+    /// 且 Viewer 系统显示不参与场景光照。
 
-    m_systemVertexColorMaterial = new Material("ViewerSystemVertexColor");
-    m_systemVertexColorMaterial->setVertexColor();
-    m_materialManager.add(m_systemVertexColorMaterial);
+    m_systemVertexColorMaterial = m_materialManager.createMaterial("ViewerSystemVertexColor");
 
+    if (m_systemVertexColorMaterial == 0)
+    {
+        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to create system Material.";
+    }
+    else
+    {
+        if (!m_systemVertexColorMaterial->setSurfaceMode(SurfaceMode::VertexColor))
+            qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to configure system Material.";
+
+        m_systemVertexColorMaterial->setLightingEnabled(false);
+    }
+
+    /// 系统 Geometry
+    ///
     /// CoordinateSystem / ViewNavigation 自己拥有 Geometry。
-    /// ResourceManager 这里只登记资源，不接管对象生命周期。
+    /// ResourceManager 只借用这些对象并管理它们的 GPU 生命周期。
 
-    if (m_resourceManager.registerResource(&m_coordinateSystem.geometry()) == InvalidResourceId)
-        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to register CoordinateSystem Geometry.";
+    if (m_resourceManager.borrow(&m_coordinateSystem.geometry()) == InvalidResourceId)
+        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to borrow CoordinateSystem Geometry.";
 
-    if (m_resourceManager.registerResource(&m_viewNavigation.faceGeometry()) == InvalidResourceId)
-        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to register ViewNavigation Face Geometry.";
+    if (m_resourceManager.borrow(&m_viewNavigation.faceGeometry()) == InvalidResourceId)
+        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to borrow ViewNavigation Face Geometry.";
 
-    if (m_resourceManager.registerResource(&m_viewNavigation.axisGeometry()) == InvalidResourceId)
-        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to register ViewNavigation Axis Geometry.";
+    if (m_resourceManager.borrow(&m_viewNavigation.axisGeometry()) == InvalidResourceId)
+        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to borrow ViewNavigation Axis Geometry.";
+
+    if (m_resourceManager.borrow(&m_navigationAnchorGeometry) == InvalidResourceId)
+        qWarning() << "OpenGLViewerWidget buildViewerResources failed: unable to borrow NavigationAnchor Geometry.";
 
     /// Viewer 系统显示规则
 
@@ -296,9 +430,10 @@ void OpenGLViewerWidget::unregisterViewerResources()
     bool contextCurrent = false;
     QOpenGLFunctions_3_3_Core* gl = 0;
 
-    // 正常情况下 releaseViewerGL() 已经释放 GPU 状态，
-    // 此处不需要 gl。这里仍尝试获取 Context，作为异常释放路径的保护。
-    if (context() != 0)
+    // 正常情况下 releaseViewerGL() 已经释放全部 GPU 状态，
+    // 因此 remove() 不需要 OpenGL Functions。
+    // 这里仍尝试取得当前 Context，用于异常释放路径的保护。
+    if (context() != 0 && m_openGLContext.isInitialized())
     {
         makeCurrent();
 
@@ -311,18 +446,23 @@ void OpenGLViewerWidget::unregisterViewerResources()
 
     ResourceId id = m_coordinateSystem.geometry().id();
 
-    if (id != InvalidResourceId && !m_resourceManager.unregisterResource(id, gl))
+    if (id != InvalidResourceId && !m_resourceManager.remove(id, gl))
         qWarning() << "OpenGLViewerWidget unregisterViewerResources failed: CoordinateSystem Geometry.";
 
     id = m_viewNavigation.faceGeometry().id();
 
-    if (id != InvalidResourceId && !m_resourceManager.unregisterResource(id, gl))
+    if (id != InvalidResourceId && !m_resourceManager.remove(id, gl))
         qWarning() << "OpenGLViewerWidget unregisterViewerResources failed: ViewNavigation Face Geometry.";
 
     id = m_viewNavigation.axisGeometry().id();
 
-    if (id != InvalidResourceId && !m_resourceManager.unregisterResource(id, gl))
+    if (id != InvalidResourceId && !m_resourceManager.remove(id, gl))
         qWarning() << "OpenGLViewerWidget unregisterViewerResources failed: ViewNavigation Axis Geometry.";
+
+    id = m_navigationAnchorGeometry.id();
+
+    if (id != InvalidResourceId && !m_resourceManager.remove(id, gl))
+        qWarning() << "OpenGLViewerWidget unregisterViewerResources failed: NavigationAnchor Geometry.";
 
     if (contextCurrent)
         doneCurrent();
@@ -350,18 +490,95 @@ bool OpenGLViewerWidget::buildRenderContext(RenderContext& context) const
     return context.isValid();
 }
 
-bool OpenGLViewerWidget::drawScene(const RenderContext& context)
+bool OpenGLViewerWidget::buildNavigationAnchorGeometry()
 {
-    for (int itemIndex = 0; itemIndex < m_scene.itemCount(); ++itemIndex)
+    PrimitiveMeshBuilder builder;
+
+    if (!builder.appendSphere(QVector3D(0.0f, 0.0f, 0.0f), 0.38f, QVector3D(1.0f, 0.75f, 0.1f), 16, 8))
+        return false;
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = PrimitiveMeshBuilder::PositionOffset;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute color;
+    color.location = GeometryAttribute::Color;
+    color.componentCount = 3;
+    color.valueOffset = PrimitiveMeshBuilder::ColorOffset;
+    attributes.push_back(color);
+
+    m_navigationAnchorGeometry.setVertexLayout(PrimitiveMeshBuilder::VertexStride, attributes);
+    m_navigationAnchorGeometry.setVertexData(builder.vertexData());
+    m_navigationAnchorGeometry.setIndexData(builder.indexData());
+
+    return true;
+}
+
+bool OpenGLViewerWidget::buildNavigationAnchorRenderState(const RenderContext& context, RenderState& state) const
+{
+    if (!m_navigationAnchorVisible || !context.isValid())
+        return false;
+
+    const QVector4D clip = context.projection * context.view * QVector4D(m_navigationAnchor, 1.0f);
+
+    if (clip.w() <= 1.0e-8f)
+        return false;
+
+    const float ndcX = clip.x() / clip.w();
+    const float ndcY = clip.y() / clip.w();
+    const float ndcZ = clip.z() / clip.w();
+
+    if (ndcX < -1.0f || ndcX > 1.0f ||
+        ndcY < -1.0f || ndcY > 1.0f ||
+        ndcZ < -1.0f || ndcZ > 1.0f)
     {
-        const RenderItem* item = m_scene.item(itemIndex);
+        return false;
+    }
+
+    const float pixelX = (ndcX * 0.5f + 0.5f) * context.viewportWidth;
+    const float pixelY = (ndcY * 0.5f + 0.5f) * context.viewportHeight;
+    const int halfSize = m_navigationAnchorPixelSize / 2;
+
+    state = RenderState();
+
+    state.model.setToIdentity();
+
+    state.view.setToIdentity();
+    state.view.lookAt(QVector3D(0.0f, 0.0f, 3.0f), QVector3D(0.0f, 0.0f, 0.0f), QVector3D(0.0f, 1.0f, 0.0f));
+
+    state.projection.setToIdentity();
+    state.projection.ortho(-1.0f, 1.0f, -1.0f, 1.0f, 0.1f, 10.0f);
+
+    state.viewport = RenderViewport(
+        static_cast<int>(pixelX) - halfSize,
+        static_cast<int>(pixelY) - halfSize,
+        m_navigationAnchorPixelSize,
+        m_navigationAnchorPixelSize);
+
+    state.depthTestEnabled = true;
+    state.depthWriteEnabled = true;
+
+    return state.viewport.isValid();
+}
+
+bool OpenGLViewerWidget::drawItems(const RenderContext& context, const std::vector<const Light*>& lights)
+{
+    const int itemCount = static_cast<int>(m_itemManager.count());
+
+    for (int itemIndex = 0; itemIndex < itemCount; ++itemIndex)
+    {
+        const RenderItem* item = m_itemManager.itemAt(itemIndex);
 
         if (item == 0)
             continue;
 
-        if (!drawItem(item, context))
+        if (!drawItem(item, context, lights))
         {
-            qWarning() << "OpenGLViewerWidget drawScene failed while drawing Item:" << item->name();
+            qWarning() << "OpenGLViewerWidget drawItems failed while drawing Item:" << item->name();
             return false;
         }
     }
@@ -369,7 +586,7 @@ bool OpenGLViewerWidget::drawScene(const RenderContext& context)
     return true;
 }
 
-bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& context)
+bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights)
 {
     if (item == 0)
         return false;
@@ -397,8 +614,9 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
         const Geometry* geometry = part->geometry();
         bool drawSucceeded = false;
 
-        // Line / LineStrip 不参与 Triangle DisplayMode。
-        if (geometry->renderType() != Triangles)
+        // Lines / LineStrip 不使用 Triangle 的 Wireframe DisplayMode。
+        // 它们始终按照自身 RenderType 和 Material 正常绘制。
+        if (geometry->renderType() != RenderType::Triangles)
         {
             if (material == 0)
             {
@@ -408,13 +626,13 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
                 return false;
             }
 
-            drawSucceeded = m_renderer.drawGeometry(geometry, material, state, &m_lightManager);
+            drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
         }
         else
         {
             switch (item->displayMode())
             {
-            case RenderItemDisplayShaded:
+            case DisplayMode::Shaded:
                 if (material == 0)
                 {
                     qWarning() << "OpenGLViewerWidget drawItem failed: shaded Part requires Material:"
@@ -423,14 +641,14 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, &m_lightManager);
+                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
                 break;
 
-            case RenderItemDisplayWireframe:
+            case DisplayMode::Wireframe:
                 drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, false);
                 break;
 
-            case RenderItemDisplayShadedWithEdges:
+            case DisplayMode::ShadedWithEdges:
                 if (material == 0)
                 {
                     qWarning() << "OpenGLViewerWidget drawItem failed: shaded Part requires Material:"
@@ -439,17 +657,12 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, &m_lightManager);
+                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
 
                 if (drawSucceeded)
                     drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, true);
 
                 break;
-
-            default:
-                qWarning() << "OpenGLViewerWidget drawItem failed: unsupported DisplayMode:"
-                           << "Item=" << item->name();
-                return false;
             }
         }
 
@@ -468,14 +681,14 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
 
 /// Camera
 
-bool OpenGLViewerWidget::fitSceneToView(float margin)
+bool OpenGLViewerWidget::fitItemsToView(float margin)
 {
     if (width() <= 0 || height() <= 0)
         return false;
 
     AxisAlignedBoundingBox bounds;
 
-    if (!m_scene.worldBounds(bounds, true))
+    if (!m_itemManager.worldBounds(bounds, true))
         return false;
 
     if (!m_cameraManager.fitBounds(bounds, width(), height(), margin))
@@ -502,7 +715,9 @@ void OpenGLViewerWidget::toggleProjection()
     if (!changed)
         return;
 
-    if (!fitSceneToView())
+    // 有 Item 时重新 Fit，保证投影切换后模型仍完整可见。
+    // 没有 Item 时只刷新当前 Camera。
+    if (!fitItemsToView())
         update();
 }
 
@@ -516,85 +731,102 @@ bool OpenGLViewerWidget::navigationAnchor(QVector3D& anchor) const
 
     AxisAlignedBoundingBox bounds;
 
-    if (!m_scene.worldBounds(bounds, true))
+    if (!m_itemManager.worldBounds(bounds, true))
         return false;
 
     anchor = bounds.center();
     return true;
 }
-bool OpenGLViewerWidget::scenePointAt(const QPoint& position, QVector3D& point)
+
+QVector3D OpenGLViewerWidget::screenPointToAnchor(const QPoint& position) const
 {
-    if (!m_glReady || width() <= 0 || height() <= 0)
-        return false;
     const Camera* camera = m_cameraManager.activeCamera();
-    if (camera == 0 || context() == 0)
-        return false;
 
-    makeCurrent();
-    QOpenGLFunctions_3_3_Core* gl = m_openGLContext.gl();
-    if (gl == 0)
+    if (camera != 0 && width() > 0 && height() > 0)
     {
-        doneCurrent();
-        return false;
+        QVector3D rayOrigin;
+        QVector3D rayDirection;
+
+        if (camera->screenPointToRay(position.x(), position.y(), width(), height(), rayOrigin, rayDirection))
+        {
+            bool found = false;
+            float nearestDistance = 0.0f;
+            QVector3D nearestPoint;
+
+            const int itemCount = static_cast<int>(m_itemManager.count());
+
+            for (int i = 0; i < itemCount; ++i)
+            {
+                const RenderItem* item = m_itemManager.itemAt(i);
+
+                if (item == 0 || !item->isVisible())
+                    continue;
+
+                RenderItemRayHit hit;
+
+                if (!item->raycast(rayOrigin, rayDirection, hit))
+                    continue;
+
+                if (!found || hit.distance < nearestDistance)
+                {
+                    found = true;
+                    nearestDistance = hit.distance;
+                    nearestPoint = hit.position;
+                }
+            }
+
+            if (found)
+                return nearestPoint;
+        }
     }
-    const qreal pixelRatio = devicePixelRatioF();
-    const int framebufferWidth = static_cast<int>(width() * pixelRatio);
-    const int framebufferHeight = static_cast<int>(height() * pixelRatio);
-    const int pixelX = static_cast<int>(position.x() * pixelRatio);
-    const int pixelY = static_cast<int>((height() - 1 - position.y()) * pixelRatio);
-    if (pixelX < 0 || pixelX >= framebufferWidth || pixelY < 0 || pixelY >= framebufferHeight)
+
+    QVector3D anchor;
+
+    if (navigationAnchor(anchor))
+        return anchor;
+
+    return m_coordinateSystem.worldOrigin();
+}
+
+bool OpenGLViewerWidget::setStandardView(ViewNavigationFace face)
+{
+    if (width() <= 0 || height() <= 0)
+        return false;
+
+    QVector3D forward;
+    QVector3D up;
+
+    if (!m_viewNavigation.viewDirection(face, forward, up))
+        return false;
+
+    AxisAlignedBoundingBox bounds;
+
+    if (m_cameraManager.hasViewBounds())
     {
-        doneCurrent();
-        return false;
+        bounds = m_cameraManager.viewBounds();
+    }
+    else
+    {
+        // Camera 没有 View Bounds 时，使用世界原点为中心的默认包围盒。
+        bounds.set(QVector3D(-1.0f, -1.0f, -1.0f), QVector3D(1.0f, 1.0f, 1.0f));
     }
 
-    gl->glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebufferObject());
-    GLfloat depth = 1.0f;
-    gl->glReadPixels(pixelX, pixelY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth);
-    doneCurrent();
-    // Depth = 1 表示该位置没有渲染到任何模型。
-    if (depth >= 1.0f - 1.0e-6f)
+    if (!m_cameraManager.setViewDirection(bounds.center(), forward, up))
         return false;
 
-    const float ndcX =
-        (static_cast<float>(position.x()) + 0.5f) /
-        static_cast<float>(width()) * 2.0f - 1.0f;
-
-    const float ndcY =
-        1.0f -
-        (static_cast<float>(position.y()) + 0.5f) /
-        static_cast<float>(height()) * 2.0f;
-
-    const float ndcZ = depth * 2.0f - 1.0f;
-
-    const float aspect = static_cast<float>(width()) / static_cast<float>(height());
-
-    const QMatrix4x4 viewProjection =
-        camera->projectionMatrix(aspect) *
-        camera->viewMatrix();
-
-    bool invertible = false;
-    const QMatrix4x4 inverseViewProjection = viewProjection.inverted(&invertible);
-
-    if (!invertible)
+    if (!m_cameraManager.fitBounds(bounds, width(), height()))
         return false;
 
-    QVector4D worldPosition =
-        inverseViewProjection *
-        QVector4D(ndcX, ndcY, ndcZ, 1.0f);
-
-    if (std::fabs(worldPosition.w()) <= 1.0e-8f)
-        return false;
-
-    worldPosition /= worldPosition.w();
-    point = worldPosition.toVector3D();
-
+    update();
     return true;
 }
+
 /// Mouse
 
 void OpenGLViewerWidget::mousePressEvent(QMouseEvent* event)
 {
+    m_lastMousePosition = event->pos();
+
     if (event->button() == Qt::LeftButton)
     {
         RenderContext context;
@@ -620,16 +852,28 @@ void OpenGLViewerWidget::mousePressEvent(QMouseEvent* event)
                 return;
             }
         }
+
+        // 左键没有命中 ViewNavigation，记录当前鼠标位置对应的导航锚点。
+        m_navigationAnchor = screenPointToAnchor(event->pos());
+        m_hasNavigationAnchor = true;
+        m_navigationAnchorHideTimer.stop();
+        m_navigationAnchorVisible = true;
+
+        update();
+
+        event->accept();
+        return;
     }
 
-    m_lastMousePosition = event->pos();
-
-    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)
+    if (event->button() == Qt::MiddleButton)
     {
-        if (!scenePointAt(event->pos(), m_navigationAnchor))
-            m_hasNavigationAnchor = navigationAnchor(m_navigationAnchor);
-        else
-            m_hasNavigationAnchor = true;
+        // 中键始终记录当前鼠标位置对应的导航锚点。
+        m_navigationAnchor = screenPointToAnchor(event->pos());
+        m_hasNavigationAnchor = true;
+        m_navigationAnchorHideTimer.stop();
+        m_navigationAnchorVisible = true;
+
+        update();
 
         event->accept();
         return;
@@ -645,20 +889,19 @@ void OpenGLViewerWidget::mouseMoveEvent(QMouseEvent* event)
 
     m_lastMousePosition = currentPosition;
 
+    if (!m_hasNavigationAnchor)
+    {
+        QOpenGLWidget::mouseMoveEvent(event);
+        return;
+    }
+
     if (event->buttons() & Qt::LeftButton)
     {
-        if (!m_hasNavigationAnchor)
-            return;
-
+        // 左键拖动：持续围绕按下时确定的锚点旋转。
         const float degreesPerPixel = 0.3f;
 
-        if (m_cameraManager.orbitAround(
-                m_navigationAnchor,
-                -delta.x() * degreesPerPixel,
-                -delta.y() * degreesPerPixel))
-        {
+        if (m_cameraManager.orbitAround(m_navigationAnchor, -delta.x() * degreesPerPixel, -delta.y() * degreesPerPixel))
             update();
-        }
 
         event->accept();
         return;
@@ -666,18 +909,9 @@ void OpenGLViewerWidget::mouseMoveEvent(QMouseEvent* event)
 
     if (event->buttons() & Qt::MiddleButton)
     {
-        if (!m_hasNavigationAnchor)
-            return;
-
-        if (m_cameraManager.panAt(
-                m_navigationAnchor,
-                delta.x(),
-                delta.y(),
-                width(),
-                height()))
-        {
+        // 中键拖动：持续基于按下时确定的锚点进行平移。
+        if (m_cameraManager.panAt(m_navigationAnchor, delta.x(), delta.y(), width(), height()))
             update();
-        }
 
         event->accept();
         return;
@@ -691,6 +925,11 @@ void OpenGLViewerWidget::mouseReleaseEvent(QMouseEvent* event)
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)
     {
         m_hasNavigationAnchor = false;
+        m_navigationAnchorVisible = false;
+        m_navigationAnchorHideTimer.stop();
+
+        update();
+
         event->accept();
         return;
     }
@@ -700,22 +939,18 @@ void OpenGLViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void OpenGLViewerWidget::wheelEvent(QWheelEvent* event)
 {
-    QVector3D anchor;
+    const QVector3D anchor = screenPointToAnchor(event->pos());
 
-    if (!scenePointAt(event->pos(), anchor))
-    {
-        if (!navigationAnchor(anchor))
-        {
-            QOpenGLWidget::wheelEvent(event);
-            return;
-        }
-    }
+    m_navigationAnchor = anchor;
+    m_navigationAnchorVisible = true;
 
     const float wheelSteps = static_cast<float>(event->angleDelta().y()) / 120.0f;
     const float factor = static_cast<float>(std::pow(1.15, wheelSteps));
 
     if (m_cameraManager.zoomAt(anchor, factor, width(), height()))
         update();
+
+    m_navigationAnchorHideTimer.start(350);
 
     event->accept();
 }
@@ -726,7 +961,7 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 {
     if (event->key() == Qt::Key_F)
     {
-        fitSceneToView();
+        fitItemsToView();
         event->accept();
         return;
     }
@@ -739,4 +974,81 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
     }
 
     QOpenGLWidget::keyPressEvent(event);
+}
+
+/// Context Menu
+
+void OpenGLViewerWidget::contextMenuEvent(QContextMenuEvent* event)
+{
+    QMenu menu(this);
+
+    /// View
+
+    QMenu* viewMenu = menu.addMenu("View");
+
+    QAction* topAction = viewMenu->addAction("Top");
+    QAction* bottomAction = viewMenu->addAction("Bottom");
+
+    viewMenu->addSeparator();
+
+    QAction* leftAction = viewMenu->addAction("Left");
+    QAction* rightAction = viewMenu->addAction("Right");
+
+    viewMenu->addSeparator();
+
+    QAction* frontAction = viewMenu->addAction("Front");
+    QAction* backAction = viewMenu->addAction("Back");
+
+    /// Visualization
+
+    QMenu* visualizationMenu = menu.addMenu("Visualization");
+
+    QAction* coordinateSystemAction = visualizationMenu->addAction("Coordinate System");
+    coordinateSystemAction->setCheckable(true);
+    coordinateSystemAction->setChecked(m_coordinateSystem.isVisible());
+
+    QAction* viewNavigationAction = visualizationMenu->addAction("View Navigation");
+    viewNavigationAction->setCheckable(true);
+    viewNavigationAction->setChecked(m_viewNavigation.isVisible());
+
+    /// Execute
+
+    QAction* selectedAction = menu.exec(event->globalPos());
+
+    if (selectedAction == topAction)
+    {
+        setStandardView(ViewNavigationFaceTop);
+    }
+    else if (selectedAction == bottomAction)
+    {
+        setStandardView(ViewNavigationFaceBottom);
+    }
+    else if (selectedAction == leftAction)
+    {
+        setStandardView(ViewNavigationFaceLeft);
+    }
+    else if (selectedAction == rightAction)
+    {
+        setStandardView(ViewNavigationFaceRight);
+    }
+    else if (selectedAction == frontAction)
+    {
+        setStandardView(ViewNavigationFaceFront);
+    }
+    else if (selectedAction == backAction)
+    {
+        setStandardView(ViewNavigationFaceBack);
+    }
+    else if (selectedAction == coordinateSystemAction)
+    {
+        m_coordinateSystem.setVisible(coordinateSystemAction->isChecked());
+        update();
+    }
+    else if (selectedAction == viewNavigationAction)
+    {
+        m_viewNavigation.setVisible(viewNavigationAction->isChecked());
+        update();
+    }
+
+    event->accept();
 }

@@ -88,8 +88,8 @@ private:
     GLint m_litNormalLocation;     // 法线变换矩阵。
 
     /// 光照 Shader 的材质 Uniform 位置
-    GLint m_litBaseColorLocation;      // Material Color 模式的统一颜色。
-    GLint m_litUseVertexColorLocation; // 是否使用 Geometry 顶点颜色。
+    GLint m_litBaseColorLocation;      // Material Color 模式使用的统一颜色。
+    GLint m_litUseVertexColorLocation; // 是否使用 Geometry Vertex Color。
 
     /// 光照 Shader 的环境光 Uniform 位置
     GLint m_litAmbientLightLocation; // 所有 Ambient Light 的最终累加结果。

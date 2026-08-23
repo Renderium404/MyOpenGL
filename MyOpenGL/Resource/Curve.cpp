@@ -9,13 +9,13 @@ Curve::Curve(const QString& name)
     std::vector<GeometryVertexAttribute> attributes;
 
     GeometryVertexAttribute positionAttribute;
-    positionAttribute.location = 0;
+    positionAttribute.location = GeometryAttribute::Position;
     positionAttribute.componentCount = 3;
     positionAttribute.valueOffset = 0;
     attributes.push_back(positionAttribute);
 
     GeometryVertexAttribute colorAttribute;
-    colorAttribute.location = 1;
+    colorAttribute.location = GeometryAttribute::Color;
     colorAttribute.componentCount = 3;
     colorAttribute.valueOffset = 3;
     attributes.push_back(colorAttribute);

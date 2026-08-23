@@ -25,18 +25,18 @@ void appendVertex(std::vector<GLfloat>& vertices, const QVector3D& position, con
 
 BufferGeometry* buildGeometry(const QString& name, const std::vector<GLfloat>& vertices, const std::vector<GLuint>& indices)
 {
-    BufferGeometry* geometry = new BufferGeometry(name, ResourceUpdateStatic, Triangles);
+    BufferGeometry* geometry = new BufferGeometry(name, BufferUsage::Static, RenderType::Triangles);
 
     std::vector<GeometryVertexAttribute> attributes;
 
     GeometryVertexAttribute position;
-    position.location = 0;
+    position.location = GeometryAttribute::Position;
     position.componentCount = 3;
     position.valueOffset = 0;
     attributes.push_back(position);
 
     GeometryVertexAttribute normal;
-    normal.location = 1;
+    normal.location = GeometryAttribute::Normal;
     normal.componentCount = 3;
     normal.valueOffset = 3;
     attributes.push_back(normal);
