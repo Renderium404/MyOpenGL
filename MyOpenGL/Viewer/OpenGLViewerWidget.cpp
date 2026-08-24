@@ -981,33 +981,46 @@ void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 void OpenGLViewerWidget::contextMenuEvent(QContextMenuEvent* event)
 {
     QMenu menu(this);
-
+    QAction* fitAllAction = menu.addAction(tr("Fit All"));
+    connect(fitAllAction, &QAction::triggered, this, [this]()
+    {
+        AxisAlignedBoundingBox bounds;
+        if(m_itemManager.worldBounds(bounds))
+        {
+            m_cameraManager.fitBounds(bounds,width(),height());
+        }
+        else{
+            bounds.set(QVector3D(-1.0,-1.0,-1.0),QVector3D(1.0,1.0,1.0));
+            m_cameraManager.focusBounds(bounds);
+        }
+        
+    });
     /// View
 
-    QMenu* viewMenu = menu.addMenu("View");
+    QMenu* viewMenu = menu.addMenu(tr("View"));
 
-    QAction* topAction = viewMenu->addAction("Top");
-    QAction* bottomAction = viewMenu->addAction("Bottom");
-
-    viewMenu->addSeparator();
-
-    QAction* leftAction = viewMenu->addAction("Left");
-    QAction* rightAction = viewMenu->addAction("Right");
+    QAction* topAction = viewMenu->addAction(tr("Top"));
+    QAction* bottomAction = viewMenu->addAction(tr("Bottom"));
 
     viewMenu->addSeparator();
 
-    QAction* frontAction = viewMenu->addAction("Front");
-    QAction* backAction = viewMenu->addAction("Back");
+    QAction* leftAction = viewMenu->addAction(tr("Left"));
+    QAction* rightAction = viewMenu->addAction(tr("Right"));
+
+    viewMenu->addSeparator();
+
+    QAction* frontAction = viewMenu->addAction(tr("Front"));
+    QAction* backAction = viewMenu->addAction(tr("Back"));
 
     /// Visualization
 
-    QMenu* visualizationMenu = menu.addMenu("Visualization");
+    QMenu* visualizationMenu = menu.addMenu(tr("Display"));
 
-    QAction* coordinateSystemAction = visualizationMenu->addAction("Coordinate System");
+    QAction* coordinateSystemAction = visualizationMenu->addAction(tr("Axes"));
     coordinateSystemAction->setCheckable(true);
     coordinateSystemAction->setChecked(m_coordinateSystem.isVisible());
 
-    QAction* viewNavigationAction = visualizationMenu->addAction("View Navigation");
+    QAction* viewNavigationAction = visualizationMenu->addAction(tr("View Navigation"));
     viewNavigationAction->setCheckable(true);
     viewNavigationAction->setChecked(m_viewNavigation.isVisible());
 
