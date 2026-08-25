@@ -74,7 +74,8 @@ private:
     void configureVertexAttributes(QOpenGLFunctions_3_3_Core* gl);
     void releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl);
     GLenum glBufferUsage() const;
-
+    std::shared_ptr<const GeometryAttributeIteratorAccessor> createAttributeIteratorAccessor(GLuint location) const override;
+    std::shared_ptr<const GeometryIndexIteratorAccessor> createIndexIteratorAccessor() const override;
 private:
     GLuint m_vao;                                            // 当前 Geometry VAO。
     GLuint m_vbo;                                            // 当前 Interleaved Vertex Buffer。

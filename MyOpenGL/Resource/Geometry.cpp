@@ -55,3 +55,53 @@ const char* bufferUsageName(BufferUsage usage)
 
     return "Unknown";
 }
+AttributeIterator Geometry::attributeBegin(GLuint location) const
+{
+    const std::shared_ptr<const GeometryAttributeIteratorAccessor> accessor = createAttributeIteratorAccessor(location);
+
+    if (!accessor)
+        return AttributeIterator();
+
+    return AttributeIterator(accessor, 0);
+}
+
+AttributeIterator Geometry::attributeEnd(GLuint location) const
+{
+    const std::shared_ptr<const GeometryAttributeIteratorAccessor> accessor = createAttributeIteratorAccessor(location);
+
+    if (!accessor)
+        return AttributeIterator();
+
+    return AttributeIterator(accessor, accessor->size());
+}
+
+IndexIterator Geometry::indexBegin() const
+{
+    const std::shared_ptr<const GeometryIndexIteratorAccessor> accessor = createIndexIteratorAccessor();
+
+    if (!accessor)
+        return IndexIterator();
+
+    return IndexIterator(accessor, 0);
+}
+
+IndexIterator Geometry::indexEnd() const
+{
+    const std::shared_ptr<const GeometryIndexIteratorAccessor> accessor = createIndexIteratorAccessor();
+
+    if (!accessor)
+        return IndexIterator();
+
+    return IndexIterator(accessor, accessor->size());
+}
+
+std::shared_ptr<const GeometryAttributeIteratorAccessor> Geometry::createAttributeIteratorAccessor(GLuint location) const
+{
+    Q_UNUSED(location);
+    return std::shared_ptr<const GeometryAttributeIteratorAccessor>();
+}
+
+std::shared_ptr<const GeometryIndexIteratorAccessor> Geometry::createIndexIteratorAccessor() const
+{
+    return std::shared_ptr<const GeometryIndexIteratorAccessor>();
+}

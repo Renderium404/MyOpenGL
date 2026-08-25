@@ -2,7 +2,7 @@
 #define GEOMETRY_H
 
 #include "MyOpenGL/Core/Resource.h"
-
+#include "GeometryIterator.h"
 /// 几何绘制类型。
 enum class RenderType
 {
@@ -52,9 +52,16 @@ public:
     /// 绘制同步
     virtual bool prepareDrawGL(QOpenGLFunctions_3_3_Core* gl) const; // Draw 前准备外部 GPU 数据访问。
     virtual void finishDrawGL(QOpenGLFunctions_3_3_Core* gl) const;  // Draw 后结束外部 GPU 数据访问。
-
+    ///数据访问
+    AttributeIterator attributeBegin(GLuint location) const;
+    AttributeIterator attributeEnd(GLuint location) const;
+    ///索引访问
+    IndexIterator indexBegin() const;
+    IndexIterator indexEnd() const;
 protected:
     explicit Geometry(const QString& name);
+    virtual std::shared_ptr<const GeometryAttributeIteratorAccessor> createAttributeIteratorAccessor(GLuint location) const;
+    virtual std::shared_ptr<const GeometryIndexIteratorAccessor> createIndexIteratorAccessor() const;
 };
 
 #endif // GEOMETRY_H

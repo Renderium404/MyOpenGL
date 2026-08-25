@@ -1,4 +1,4 @@
-#include "Curve.h"
+#include "CurveResource.h"
 
 #include <QDebug>
 

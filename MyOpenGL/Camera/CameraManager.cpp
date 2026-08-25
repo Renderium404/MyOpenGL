@@ -146,6 +146,21 @@ bool CameraManager::orbitAround(const QVector3D& anchor, float yaw, float pitch)
         return false;
     }
 
+    /// 平行投影下，先沿 Camera Forward 调整 Camera Position，
+    /// 使真实旋转锚点位于 Near / Far 中间深度。
+    ///
+    /// 只移动 Camera，不修改 anchor，因此不会改变锚点的屏幕 XY 位置。
+    if (camera->projectionType() == ProjectionType::Parallel)
+    {
+        const QVector3D forward = camera->forward();
+        const float currentDepth = QVector3D::dotProduct(anchor - camera->position(), forward);
+        const float targetDepth = (camera->nearPlane() + camera->farPlane()) * 0.5f;
+        const QVector3D position = camera->position() + forward * (currentDepth - targetDepth);
+
+        if (!camera->setCamera(position, camera->orientation()))
+            return false;
+    }
+
     const QVector3D offset = camera->position() - anchor;
 
     if (offset.lengthSquared() <= 1.0e-12f)
@@ -230,8 +245,13 @@ bool CameraManager::zoomAt(const QVector3D& anchor, float factor, int viewportWi
         return false;
     }
 
-    const QVector3D anchorOffset = anchor - camera->position();
-    const float depth = QVector3D::dotProduct(anchorOffset, camera->forward());
+    const QVector3D navigationPoint = navigationAnchor(camera, anchor);
+    const QVector3D cameraPosition = camera->position();
+    const QVector3D right = camera->right();
+    const QVector3D up = camera->up();
+    const QVector3D forward = camera->forward();
+    const QVector3D anchorOffset = navigationPoint - cameraPosition;
+    const float depth = QVector3D::dotProduct(anchorOffset, forward);
 
     if (depth <= 1.0e-8f)
     {
@@ -248,7 +268,8 @@ bool CameraManager::zoomAt(const QVector3D& anchor, float factor, int viewportWi
         newDepth = qBound(minimumDepth, newDepth, maximumDepth);
 
         const float actualFactor = depth / newDepth;
-        const QVector3D newPosition = anchor - anchorOffset / actualFactor;
+        const float moveFactor = 1.0f - 1.0f / actualFactor;
+        const QVector3D newPosition = cameraPosition + anchorOffset * moveFactor;
 
         return camera->setCamera(newPosition, camera->orientation());
     }
@@ -258,18 +279,17 @@ bool CameraManager::zoomAt(const QVector3D& anchor, float factor, int viewportWi
     const float newHeight = qMax(oldHeight / factor, minimumHeight);
     const float actualFactor = oldHeight / newHeight;
 
-    const float anchorX = QVector3D::dotProduct(anchorOffset, camera->right());
-    const float anchorY = QVector3D::dotProduct(anchorOffset, camera->up());
+    const float anchorX = QVector3D::dotProduct(anchorOffset, right);
+    const float anchorY = QVector3D::dotProduct(anchorOffset, up);
+    const float moveFactor = 1.0f - 1.0f / actualFactor;
 
-    const QVector3D newAnchorOffset = camera->right() * (anchorX / actualFactor) + camera->up() * (anchorY / actualFactor) + camera->forward() * depth;
-    const QVector3D newPosition = anchor - newAnchorOffset;
+    const QVector3D newPosition = cameraPosition + right * (anchorX * moveFactor) + up * (anchorY * moveFactor);
 
     if (!camera->setParallel(newHeight, camera->nearPlane(), camera->farPlane()))
         return false;
 
     return camera->setCamera(newPosition, camera->orientation());
 }
-
 bool CameraManager::setViewDirection(const QVector3D& anchor, const QVector3D& forward, const QVector3D& up)
 {
     Camera* camera = activeCamera();
@@ -541,7 +561,21 @@ bool CameraManager::fitBounds(const AxisAlignedBoundingBox& bounds, int viewport
 }
 
 /// CameraId
+QVector3D CameraManager::navigationAnchor(const Camera* camera, const QVector3D& anchor) const
+{
+    if (camera == 0 || camera->projectionType() != ProjectionType::Parallel)
+        return anchor;
 
+    const QVector3D forward = camera->forward();
+
+    // Anchor 当前位于 Camera Forward 方向上的深度。
+    const float anchorDepth = QVector3D::dotProduct(anchor - camera->position(), forward);
+
+    // 平行投影的交互 Anchor 始终放在 Near / Far 中间平面。
+    const float targetDepth = (camera->nearPlane() + camera->farPlane()) * 0.5f;
+
+    return anchor + forward * (targetDepth - anchorDepth);
+}
 CameraId CameraManager::allocateId()
 {
     while (m_nextId == InvalidCameraId || contains(m_nextId))

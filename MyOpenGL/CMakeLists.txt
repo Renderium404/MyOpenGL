@@ -6,10 +6,12 @@ add_library(MyOpenGLCore STATIC
 
     Resource/Geometry.cpp
     Resource/Geometry.h
+    Resource/GeometryIterator.cpp
+    Resource/GeometryIterator.h
     Resource/BufferGeometry.cpp
     Resource/BufferGeometry.h
-    Resource/Curve.cpp
-    Resource/Curve.h
+    Resource/CurveResource.cpp
+    Resource/CurveResource.h
     Resource/ExternalGeometryData.h
     Resource/ExternalGeometryDataSource.h
     Resource/ExternalGeometry.cpp
@@ -99,6 +101,18 @@ add_library(MyOpenGLViewer STATIC
     Viewer/System/CoordinateSystem.h
     Viewer/System/ViewNavigation.cpp
     Viewer/System/ViewNavigation.h
+
+    Viewer/Measurement/MeasurementTool.h
+    Viewer/Measurement/MeasurementTool.cpp
+    Viewer/Measurement/Length2DMeasurement.h
+    Viewer/Measurement/Length2DMeasurement.cpp
+    Viewer/Measurement/Length3DMeasurement.h
+    Viewer/Measurement/Length3DMeasurement.cpp
+
+    Viewer/Measurement/Angle2DMeasurement.h
+    Viewer/Measurement/Angle2DMeasurement.cpp
+    Viewer/Measurement/Angle3DMeasurement.h
+    Viewer/Measurement/Angle3DMeasurement.cpp
 )
 
 target_include_directories(MyOpenGLViewer

@@ -124,15 +124,17 @@ public:
     AxisAlignedBoundingBox worldBounds() const;
 
     /// Item Interaction
-
-    /// 使用 World Space Ray 对当前 Item 的各 RenderPart LocalBounds 执行命中测试。
-    /// Ray 会先通过 Item Transform 转换到 Item Local Space；
-    /// 最终返回最近命中的 RenderPart，以及对应的世界空间距离和命中位置。
-    /// 当前只进行 Part Bounds 级命中，不执行 Triangle / Line / Vertex 精确 Picking。
+    /// 射线命中测试。
+    /// raycast() 默认执行精确三角形命中。
     bool raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
 
-    /// Display
+    /// 射线与 RenderPart 的局部包围盒进行命中测试。
+    bool raycastBox(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
 
+    /// 先使用 RenderPart 包围盒粗筛，再对 BufferGeometry 三角形进行精确命中测试。
+    bool raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
+
+    /// Display
     /// 当前 Item 是否参与正常 Viewer 绘制。
     bool isVisible() const;
     void setVisible(bool visible);

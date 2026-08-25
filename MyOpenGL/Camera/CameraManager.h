@@ -58,7 +58,7 @@ public:
 
 private:
     typedef std::map<CameraId, Camera*> CameraMap;
-
+    QVector3D navigationAnchor(const Camera* camera, const QVector3D& anchor) const;
     CameraId allocateId();
 
 private:

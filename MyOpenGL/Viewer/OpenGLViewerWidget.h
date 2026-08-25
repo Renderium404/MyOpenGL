@@ -5,7 +5,7 @@
 #include <QPoint>
 #include <QTimer>
 #include <QVector3D>
-
+#include <QMatrix4x4>
 #include <vector>
 
 #include "MyOpenGL/Camera/CameraManager.h"
@@ -19,7 +19,7 @@
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Viewer/System/CoordinateSystem.h"
 #include "MyOpenGL/Viewer/System/ViewNavigation.h"
-
+#include "MyOpenGL/Viewer/Measurement/MeasurementTool.h"
 class QContextMenuEvent;
 class QKeyEvent;
 class QMouseEvent;
@@ -27,7 +27,9 @@ class QWheelEvent;
 class Light;
 class Material;
 class RenderItem;
-
+class QMenu;
+class QPainter;
+class ViewportOverlayWidget;
 /// MyOpenGL 基础 Viewer。
 /// 负责 OpenGL 生命周期、Item 绘制、Camera 操作和 Viewer 系统显示。
 class OpenGLViewerWidget : public QOpenGLWidget
@@ -51,7 +53,8 @@ public:
 
     ItemManager& itemManager();
     const ItemManager& itemManager() const;
-
+    ItemManager& measurementItemManager();
+    const ItemManager& measurementItemManager() const;
     /// Viewer 系统显示
     CoordinateSystem& coordinateSystem();
     const CoordinateSystem& coordinateSystem() const;
@@ -64,26 +67,58 @@ public:
 
     /// Camera
     bool fitItemsToView(float margin = 1.15f);
-    void toggleProjection();
+    void toggleProjection();//改变投影模式
+
+    /// 测量工具
+    void setMeasurementTool(MeasurementTool* tool);
+    MeasurementTool* measurementTool();
+    const MeasurementTool* measurementTool() const;
+    /// 三维测量结果。
+    void clearMeasurementItems();
+    bool removeLastMeasurementItem();
+
+
+    /// 屏幕坐标与世界坐标转换。
+    bool scenePointAtWorld(const QPoint& sence,QVector3D& world) const; // 基于场景深度缓存获取世界坐标。
+    bool worldPointAtScene(const QVector3D& world,QPoint& sence) const; // 将世界坐标投影到屏幕坐标。
 
 protected:
-    /// OpenGL
+    /// OpenGL事件处理
     void initializeGL() override;
     void resizeGL(int width, int height) override;
     void paintGL() override;
 
-    /// Input
+    /// QT事件处理
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
+    void resizeEvent(QResizeEvent* event) override;
 
+    /// 子类扩展
+    virtual void populateContextMenu(QMenu& menu);
+    virtual bool handleKeyPress(QKeyEvent* event);
+    // 背景绘制。
+    virtual void drawSceneBackground(Renderer& renderer, const RenderContext& context);
+    // 场景绘制。
+    virtual void drawOpenGLFrame(Renderer& renderer, const RenderContext& context);
+    // 前景绘制。
+    virtual void drawSceneFront(Renderer& renderer, const RenderContext& context);
+    // 悬浮层绘制
+    virtual void drawViewportOverlay(QPainter& painter);
+
+    /// 刷新 Viewport 悬浮层。
+    void updateViewportOverlay();
+
+    bool setStandardView(ViewNavigationFace face);
 private:
+    friend class ViewportOverlayWidget;
     /// OpenGL 生命周期
     void releaseViewerGL();
-
+    
+    bool removeMeasurementItemAt(int index);
     /// Viewer 系统资源
     void buildViewerResources();
     void unregisterViewerResources();
@@ -92,15 +127,23 @@ private:
     bool buildRenderContext(RenderContext& context) const;
     bool buildNavigationAnchorGeometry();
     bool buildNavigationAnchorRenderState(const RenderContext& context, RenderState& state) const;
-    bool drawItems(const RenderContext& context, const std::vector<const Light*>& lights);
+    //正常的Item渲染
+    bool drawItems(const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
     bool drawItem(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights);
 
     /// Camera Navigation
     bool navigationAnchor(QVector3D& anchor) const;
+    /// 缩放走的锚点获取路径
+    QVector3D screenPointToZoomAnchor(const QPoint& position) const;
+    /// 其他操作走的锚点获取路径
     QVector3D screenPointToAnchor(const QPoint& position) const;
-    bool setStandardView(ViewNavigationFace face);
+    /// 用于可交互对象Item的深度缓存
+    bool cacheSceneDepth(const RenderContext& context);         //缓存深度
+    void clearSceneDepthCache();    //清理深度
 
 private:
+    /// Viewport Overlay
+    ViewportOverlayWidget* m_viewportOverlay;             // 透明 2D 悬浮绘制层。
     /// Viewer 系统显示
     CoordinateSystem m_coordinateSystem;              // 世界坐标系。
     ViewNavigation m_viewNavigation;                  // 右上角视图导航器。
@@ -115,7 +158,8 @@ private:
     LightManager m_lightManager;                      // Light 管理。
     CameraManager m_cameraManager;                    // Camera 管理和导航操作。
     ItemManager m_itemManager;                        // 用户 RenderItem 管理。
-
+    ItemManager m_measurementItemManager;                 // 测量辅助 Item 管理。
+    MeasurementTool* m_measurementTool;               // 当前测量工具，不负责生命周期。
     /// Viewer 系统渲染
     Material* m_systemVertexColorMaterial;            // 坐标系和导航器共用的无光照顶点颜色 Material。
     BufferGeometry m_navigationAnchorGeometry;        // Camera Navigation 锚点显示 Geometry。
@@ -131,6 +175,12 @@ private:
     /// Viewer 状态
     bool m_glReady;                                   // OpenGL 是否初始化完成。
     bool m_releasePerformed;                          // 当前 OpenGL Context 是否已经执行 GPU 释放。
+    ///深度缓存
+    std::vector<float> m_sceneDepthBuffer;
+    QMatrix4x4 m_sceneDepthInverseViewProjection;
+    int m_sceneDepthWidth;
+    int m_sceneDepthHeight;
+    bool m_sceneDepthValid;
 };
 
 #endif // OPENGLVIEWERWIDGET_H

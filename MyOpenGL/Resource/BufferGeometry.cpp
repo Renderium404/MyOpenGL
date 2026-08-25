@@ -3,7 +3,68 @@
 #include <QDebug>
 
 #include <algorithm>
+namespace
+{
 
+class BufferGeometryAttributeIteratorAccessor : public GeometryAttributeIteratorAccessor
+{
+public:
+    BufferGeometryAttributeIteratorAccessor(const BufferGeometry* geometry, GLuint location, int valueOffset, int componentCount)
+        : GeometryAttributeIteratorAccessor(geometry, location),
+          m_geometry(geometry),
+          m_valueOffset(valueOffset),
+          m_componentCount(componentCount)
+    {
+    }
+
+    std::size_t size() const override
+    {
+        return static_cast<std::size_t>(m_geometry->vertexCount());
+    }
+
+    int componentCount() const override
+    {
+        return m_componentCount;
+    }
+
+    GLfloat value(std::size_t index, int component) const override
+    {
+        const std::vector<GLfloat>& vertices = m_geometry->vertexData();
+        const std::size_t valueIndex = index * static_cast<std::size_t>(m_geometry->valuesPerVertex()) + static_cast<std::size_t>(m_valueOffset + component);
+
+        return vertices[valueIndex];
+    }
+
+private:
+    const BufferGeometry* m_geometry;
+    int m_valueOffset;
+    int m_componentCount;
+};
+
+class BufferGeometryIndexIteratorAccessor : public GeometryIndexIteratorAccessor
+{
+public:
+    explicit BufferGeometryIndexIteratorAccessor(const BufferGeometry* geometry)
+        : GeometryIndexIteratorAccessor(geometry),
+          m_geometry(geometry)
+    {
+    }
+
+    std::size_t size() const override
+    {
+        return m_geometry->indexData().size();
+    }
+
+    GLuint value(std::size_t index) const override
+    {
+        return m_geometry->indexData()[index];
+    }
+
+private:
+    const BufferGeometry* m_geometry;
+};
+
+}
 BufferGeometry::BufferGeometry(const QString& name, BufferUsage usage, RenderType renderType)
     : Geometry(name)
     , m_vao(0)
@@ -432,4 +493,35 @@ void BufferGeometry::releaseGPUObjects(QOpenGLFunctions_3_3_Core* gl)
 GLenum BufferGeometry::glBufferUsage() const
 {
     return m_usage == BufferUsage::Dynamic ? GL_DYNAMIC_DRAW : GL_STATIC_DRAW;
+}
+std::shared_ptr<const GeometryAttributeIteratorAccessor> BufferGeometry::createAttributeIteratorAccessor(GLuint location) const
+{
+    if (m_vertices.empty() || m_valuesPerVertex <= 0)
+        return std::shared_ptr<const GeometryAttributeIteratorAccessor>();
+
+    for (std::size_t i = 0; i < m_attributes.size(); ++i)
+    {
+        const GeometryVertexAttribute& attribute = m_attributes[i];
+
+        if (attribute.location != location)
+            continue;
+
+        if (attribute.componentCount <= 0)
+            return std::shared_ptr<const GeometryAttributeIteratorAccessor>();
+
+        if (attribute.valueOffset < 0 || attribute.valueOffset + attribute.componentCount > m_valuesPerVertex)
+            return std::shared_ptr<const GeometryAttributeIteratorAccessor>();
+
+        return std::make_shared<BufferGeometryAttributeIteratorAccessor>(this, location, attribute.valueOffset, attribute.componentCount);
+    }
+
+    return std::shared_ptr<const GeometryAttributeIteratorAccessor>();
+}
+
+std::shared_ptr<const GeometryIndexIteratorAccessor> BufferGeometry::createIndexIteratorAccessor() const
+{
+    if (m_indices.empty())
+        return std::shared_ptr<const GeometryIndexIteratorAccessor>();
+
+    return std::make_shared<BufferGeometryIndexIteratorAccessor>(this);
 }

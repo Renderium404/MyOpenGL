@@ -2,10 +2,61 @@
 
 #include <QDebug>
 #include <QVector4D>
-
+#include <cmath>
+#include <cfloat>
 #include <algorithm>
 #include <cfloat>
 #include <set>
+#include "MyOpenGL/Resource/BufferGeometry.h"
+namespace
+{
+
+bool intersectRayTriangle(const QVector3D& rayOrigin, const QVector3D& rayDirection,
+                          const QVector3D& vertex0, const QVector3D& vertex1, const QVector3D& vertex2,
+                          float& distance)
+{
+    const float epsilon = 1.0e-8f;
+
+    const QVector3D edge1 = vertex1 - vertex0;
+    const QVector3D edge2 = vertex2 - vertex0;
+
+    const QVector3D p = QVector3D::crossProduct(rayDirection, edge2);
+    const float determinant = QVector3D::dotProduct(edge1, p);
+
+    // 双面命中，不进行 Back Face Culling。
+    if (std::fabs(determinant) <= epsilon)
+        return false;
+
+    const float inverseDeterminant = 1.0f / determinant;
+    const QVector3D t = rayOrigin - vertex0;
+    const float u = QVector3D::dotProduct(t, p) * inverseDeterminant;
+
+    if (u < 0.0f || u > 1.0f)
+        return false;
+
+    const QVector3D q = QVector3D::crossProduct(t, edge1);
+    const float v = QVector3D::dotProduct(rayDirection, q) * inverseDeterminant;
+
+    if (v < 0.0f || u + v > 1.0f)
+        return false;
+
+    const float rayDistance = QVector3D::dotProduct(edge2, q) * inverseDeterminant;
+
+    if (rayDistance < 0.0f)
+        return false;
+
+    distance = rayDistance;
+    return true;
+}
+
+QVector3D attributePosition(const AttributeValue& value)
+{
+    return QVector3D(value[0], value[1], value[2]);
+}
+
+}
+
+
 
 RenderItemRayHit::RenderItemRayHit()
     : partId(InvalidRenderPartId)
@@ -266,7 +317,10 @@ AxisAlignedBoundingBox RenderItem::worldBounds() const
 
 /// Item Interaction
 
-bool RenderItem::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const
+bool RenderItem::raycastBox(
+    const QVector3D& rayOrigin,
+    const QVector3D& rayDirection,
+    RenderItemRayHit& hit) const
 {
     hit = RenderItemRayHit();
 
@@ -333,6 +387,143 @@ bool RenderItem::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirecti
     return found;
 }
 
+bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const
+{
+    hit = RenderItemRayHit();
+
+    if (rayDirection.lengthSquared() <= 1.0e-12f)
+        return false;
+
+    const QVector3D worldDirection = rayDirection.normalized();
+    const QMatrix4x4 model = m_transform.matrix();
+
+    bool invertible = false;
+    const QMatrix4x4 inverseModel = model.inverted(&invertible);
+
+    if (!invertible)
+        return false;
+
+    // World Ray -> Item Local Ray。
+    const QVector3D localOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
+    const QVector3D localSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
+
+    QVector3D localDirection = localSecondPoint - localOrigin;
+
+    if (localDirection.lengthSquared() <= 1.0e-12f)
+        return false;
+
+    localDirection.normalize();
+
+    bool found = false;
+    float nearestDistance = FLT_MAX;
+
+    for (std::size_t i = 0; i < m_parts.size(); ++i)
+    {
+        const RenderPart* currentPart = m_parts[i];
+
+        if (currentPart == 0)
+            continue;
+
+        const Geometry* geometry = currentPart->geometry();
+
+        if (geometry == 0)
+            continue;
+
+        // 当前精确命中只处理三角形 Primitive。
+        if (geometry->renderType() != RenderType::Triangles)
+            continue;
+
+        // 第一层：Part Bounds 粗筛。
+        if (currentPart->hasLocalBounds())
+        {
+            float boundsDistance = 0.0f;
+
+            if (!currentPart->localBounds().intersectRay(localOrigin, localDirection, boundsDistance))
+                continue;
+        }
+
+        // 第二层：取得 Position Attribute。
+        AttributeIterator positionBegin = geometry->attributeBegin(GeometryAttribute::Position);
+        AttributeIterator positionEnd = geometry->attributeEnd(GeometryAttribute::Position);
+
+        if (positionBegin == positionEnd)
+            continue;
+
+        if (positionBegin.componentCount() < 3)
+            continue;
+
+        const AttributeIterator::difference_type vertexCount = positionEnd - positionBegin;
+
+        if (vertexCount <= 0)
+            continue;
+
+        // 第三层：取得 Triangle Index。
+        IndexIterator indexBegin = geometry->indexBegin();
+        IndexIterator indexEnd = geometry->indexEnd();
+
+        if (indexBegin == indexEnd)
+            continue;
+
+        if (indexEnd - indexBegin < 3)
+            continue;
+
+        // 每三个 Index 组成一个 Triangle。
+        for (IndexIterator indexIt = indexBegin; indexEnd - indexIt >= 3; indexIt += 3)
+        {
+            const GLuint index0 = indexIt[0];
+            const GLuint index1 = indexIt[1];
+            const GLuint index2 = indexIt[2];
+
+            if (index0 >= static_cast<GLuint>(vertexCount) ||
+                index1 >= static_cast<GLuint>(vertexCount) ||
+                index2 >= static_cast<GLuint>(vertexCount))
+            {
+                continue;
+            }
+
+            const QVector3D vertex0 = attributePosition(positionBegin[index0]);
+            const QVector3D vertex1 = attributePosition(positionBegin[index1]);
+            const QVector3D vertex2 = attributePosition(positionBegin[index2]);
+
+            float localDistance = 0.0f;
+
+            if (!intersectRayTriangle(localOrigin, localDirection, vertex0, vertex1, vertex2, localDistance))
+                continue;
+
+            const QVector3D localPosition = localOrigin + localDirection * localDistance;
+            const QVector3D worldPosition = (model * QVector4D(localPosition, 1.0f)).toVector3D();
+
+            float worldDistance = QVector3D::dotProduct(worldPosition - rayOrigin, worldDirection);
+
+            if (worldDistance < -1.0e-6f)
+                continue;
+
+            if (worldDistance < 0.0f)
+                worldDistance = 0.0f;
+
+            if (worldDistance >= nearestDistance)
+                continue;
+
+            nearestDistance = worldDistance;
+
+            hit.partId = currentPart->id();
+            hit.distance = worldDistance;
+            hit.position = worldPosition;
+
+            found = true;
+        }
+    }
+
+    return found;
+}
+
+bool RenderItem::raycast(
+    const QVector3D& rayOrigin,
+    const QVector3D& rayDirection,
+    RenderItemRayHit& hit) const
+{
+    return raycastPoint(rayOrigin, rayDirection, hit);
+}
 /// Display
 
 bool RenderItem::isVisible() const
