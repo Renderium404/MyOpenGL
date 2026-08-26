@@ -32,6 +32,7 @@ struct RenderState
 
     bool depthTestEnabled;      //是否启用深度测试
     bool depthWriteEnabled;
+    bool blendEnabled;          
 };
 
 #endif // RENDERSTATE_H

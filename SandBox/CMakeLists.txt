@@ -1,41 +1,40 @@
 # ============================================================
 # SandBox
 #
-# 当前目录下每一个 .cpp 都作为一个独立测试程序。
-# 每个 .cpp 必须包含自己的 main()。
+# 每一个测试程序显式定义自己的 Target。
+# 测试程序可以包含一个 main.cpp 和若干辅助源文件。
 # ============================================================
 
-file(GLOB SANDBOX_SOURCES CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-)
+function(add_sandbox_test SANDBOX_NAME)
 
-foreach(SANDBOX_SOURCE ${SANDBOX_SOURCES})
-
-    # 例如：
-    # TestCamera.cpp -> TestCamera
-    get_filename_component(SANDBOX_NAME
-        "${SANDBOX_SOURCE}"
-        NAME_WE
-    )
-
-    # CMake Target 使用前缀，避免和项目中的其他 Target 重名。
     set(SANDBOX_TARGET "SandBox_${SANDBOX_NAME}")
 
     add_executable(${SANDBOX_TARGET}
-        "${SANDBOX_SOURCE}"
+        ${ARGN}
     )
-    
+
     target_link_libraries(${SANDBOX_TARGET}
         PRIVATE
         MyOpenGLViewer
         Qt5::Widgets
     )
 
-    # 最终生成的 exe 仍然叫 TestCamera.exe，
-    # 而不是 SandBox_TestCamera.exe。
+    # 最终生成的 exe 保持测试名称。
     set_target_properties(${SANDBOX_TARGET}
         PROPERTIES
         OUTPUT_NAME "${SANDBOX_NAME}"
     )
 
-endforeach()
+endfunction()
+
+# Camera / Viewer 测试。
+add_sandbox_test(TestCameraViewer
+    TestCameraViewer.cpp
+)
+
+# Renderer 独立测试。
+add_sandbox_test(TestRenderer
+    TestRenderer.cpp
+    RendererSandboxWidget.cpp
+    RendererSandboxWidget.h
+)

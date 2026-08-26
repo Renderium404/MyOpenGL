@@ -8,6 +8,7 @@ Material::Material(const QString& name)
     , m_type(SurfaceMode::Color)
     , m_lightingEnabled(true)
     , m_color(1.0f, 1.0f, 1.0f, 1.0f)
+    , m_texture(0)
 {
 }
 
@@ -26,12 +27,13 @@ QString Material::type() const
 
     case SurfaceMode::VertexColor:
         return "VertexColor";
+
+    case SurfaceMode::Texture:
+        return "Texture";
     }
 
     return "Unknown";
 }
-
-/// 光照
 
 /// 表面渲染
 
@@ -41,6 +43,7 @@ bool Material::setSurfaceMode(SurfaceMode mode)
     {
     case SurfaceMode::Color:
     case SurfaceMode::VertexColor:
+    case SurfaceMode::Texture:
         m_type = mode;
         return true;
     }

@@ -69,6 +69,7 @@ RenderItem::RenderItem(const QString& name)
     : m_id(InvalidRenderItemId)
     , m_name(name)
     , m_nextPartId(1)
+    , m_nextLabelId(1)
     , m_material(0)
     , m_visible(true)
     , m_type(DisplayMode::Shaded)
@@ -79,6 +80,7 @@ RenderItem::RenderItem(const QString& name)
 
 RenderItem::~RenderItem()
 {
+    clearLabels();
     clearParts();
 }
 
@@ -196,7 +198,107 @@ const RenderPart* RenderItem::part(RenderPartId id) const
     std::map<RenderPartId, RenderPart*>::const_iterator it = m_partsById.find(id);
     return it != m_partsById.end() ? it->second : 0;
 }
+/// Label 管理
 
+RenderLabel* RenderItem::createLabel()
+{
+    const RenderLabelId id = allocateLabelId();
+
+    if (id == InvalidRenderLabelId)
+    {
+        qWarning() << "RenderItem createLabel failed: unable to allocate RenderLabelId:"
+                   << "Item=" << m_name;
+
+        return 0;
+    }
+
+    RenderLabel* result = new RenderLabel(id);
+
+    m_labels.push_back(result);
+    m_labelsById[id] = result;
+
+    return result;
+}
+
+bool RenderItem::removeLabel(RenderLabelId id)
+{
+    std::map<RenderLabelId, RenderLabel*>::iterator mapIterator = m_labelsById.find(id);
+
+    if (mapIterator == m_labelsById.end())
+        return false;
+
+    RenderLabel* target = mapIterator->second;
+
+    std::vector<RenderLabel*>::iterator vectorIterator =
+        std::find(m_labels.begin(), m_labels.end(), target);
+
+    if (vectorIterator == m_labels.end())
+    {
+        qWarning() << "RenderItem removeLabel failed: internal Label collection is inconsistent:"
+                   << "Item=" << m_name
+                   << "LabelId=" << static_cast<qulonglong>(id);
+
+        return false;
+    }
+
+    m_labels.erase(vectorIterator);
+    m_labelsById.erase(mapIterator);
+
+    delete target;
+
+    return true;
+}
+
+void RenderItem::clearLabels()
+{
+    for (std::size_t i = 0; i < m_labels.size(); ++i)
+        delete m_labels[i];
+
+    m_labels.clear();
+    m_labelsById.clear();
+
+    m_nextLabelId = 1;
+}
+
+int RenderItem::labelCount() const
+{
+    return static_cast<int>(m_labels.size());
+}
+
+bool RenderItem::containsLabel(RenderLabelId id) const
+{
+    return m_labelsById.find(id) != m_labelsById.end();
+}
+
+RenderLabel* RenderItem::labelAt(int index)
+{
+    if (index < 0 || index >= static_cast<int>(m_labels.size()))
+        return 0;
+
+    return m_labels[static_cast<std::size_t>(index)];
+}
+
+const RenderLabel* RenderItem::labelAt(int index) const
+{
+    if (index < 0 || index >= static_cast<int>(m_labels.size()))
+        return 0;
+
+    return m_labels[static_cast<std::size_t>(index)];
+}
+
+RenderLabel* RenderItem::label(RenderLabelId id)
+{
+    std::map<RenderLabelId, RenderLabel*>::iterator it = m_labelsById.find(id);
+
+    return it != m_labelsById.end() ? it->second : 0;
+}
+
+const RenderLabel* RenderItem::label(RenderLabelId id) const
+{
+    std::map<RenderLabelId, RenderLabel*>::const_iterator it = m_labelsById.find(id);
+
+    return it != m_labelsById.end() ? it->second : 0;
+}
 /// Part Update
 
 bool RenderItem::applyPartUpdate(const RenderPartUpdate& update)
@@ -535,7 +637,6 @@ void RenderItem::setVisible(bool visible)
 {
     m_visible = visible;
 }
-
 bool RenderItem::setDisplayMode(DisplayMode mode)
 {
     switch (mode)
@@ -584,7 +685,17 @@ RenderPartId RenderItem::allocatePartId()
 
     return id;
 }
+RenderLabelId RenderItem::allocateLabelId()
+{
+    while (m_nextLabelId == InvalidRenderLabelId || containsLabel(m_nextLabelId))
+        ++m_nextLabelId;
 
+    const RenderLabelId id = m_nextLabelId;
+
+    ++m_nextLabelId;
+
+    return id;
+}
 /// 内部辅助
 
 void RenderItem::rebuildLocalBoundsCache() const

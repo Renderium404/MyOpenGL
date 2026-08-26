@@ -2,7 +2,7 @@
 #define OPENGLVIEWERWIDGET_H
 
 #include <QOpenGLWidget>
-#include <QPoint>
+#include <QPointF>
 #include <QTimer>
 #include <QVector3D>
 #include <QMatrix4x4>
@@ -29,11 +29,13 @@ class Material;
 class RenderItem;
 class QMenu;
 class QPainter;
+class QPointF;
 class ViewportOverlayWidget;
 /// MyOpenGL 基础 Viewer。
 /// 负责 OpenGL 生命周期、Item 绘制、Camera 操作和 Viewer 系统显示。
 class OpenGLViewerWidget : public QOpenGLWidget
 {
+     Q_OBJECT
 public:
     explicit OpenGLViewerWidget(QWidget* parent = 0);
     ~OpenGLViewerWidget() override;
@@ -77,11 +79,10 @@ public:
     void clearMeasurementItems();
     bool removeLastMeasurementItem();
 
-
-    /// 屏幕坐标与世界坐标转换。
-    bool scenePointAtWorld(const QPoint& sence,QVector3D& world) const; // 基于场景深度缓存获取世界坐标。
-    bool worldPointAtScene(const QVector3D& world,QPoint& sence) const; // 将世界坐标投影到屏幕坐标。
-
+    bool scenePointAtWorld(const QPointF& scene, QVector3D& world) const;
+    bool worldPointAtScene(const QVector3D& world, QPointF& scene) const;
+signals:
+    void measurementFinished(MeasurementType type);
 protected:
     /// OpenGL事件处理
     void initializeGL() override;
@@ -111,7 +112,6 @@ protected:
 
     /// 刷新 Viewport 悬浮层。
     void updateViewportOverlay();
-
     bool setStandardView(ViewNavigationFace face);
 private:
     friend class ViewportOverlayWidget;
@@ -127,16 +127,24 @@ private:
     bool buildRenderContext(RenderContext& context) const;
     bool buildNavigationAnchorGeometry();
     bool buildNavigationAnchorRenderState(const RenderContext& context, RenderState& state) const;
-    //正常的Item渲染
-    bool drawItems(const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
-    bool drawItem(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights);
 
+    /// Item 渲染
+    bool drawItems(const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
+    /// 绘制 Item 的世界空间 RenderPart。
+    bool drawItemParts(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights);
+    /// 绘制 Item 的持久化屏幕 Label。
+    bool drawItemLabels(const RenderItem* item, const RenderContext& context);
     /// Camera Navigation
     bool navigationAnchor(QVector3D& anchor) const;
     /// 缩放走的锚点获取路径
-    QVector3D screenPointToZoomAnchor(const QPoint& position) const;
+    QVector3D screenPointToZoomAnchor(const QPointF& position) const;
     /// 其他操作走的锚点获取路径
-    QVector3D screenPointToAnchor(const QPoint& position) const;
+    QVector3D screenPointToAnchor(const QPointF& position) const;
+
+
+    bool scenePointAtWorldFromDepth(const QPointF& scene, QVector3D& world) const;      //基于屏幕缓存的屏幕点转世界坐标
+    bool scenePointAtWorldFromRay(const QPointF& scene, QVector3D& world) const;        //基于光线映射的屏幕点转世界坐标
+    bool projectWorldPointToScene(const QVector3D& world, QPointF& scene) const;        //基于投影的世界坐标转屏幕坐标
     /// 用于可交互对象Item的深度缓存
     bool cacheSceneDepth(const RenderContext& context);         //缓存深度
     void clearSceneDepthCache();    //清理深度
@@ -168,7 +176,7 @@ private:
     QTimer m_navigationAnchorHideTimer;               // Wheel Zoom 后延迟隐藏锚点。
 
     /// Input 状态
-    QPoint m_lastMousePosition;                       // 上一次鼠标位置。
+    QPointF m_lastMousePosition;                       // 上一次鼠标位置。
     QVector3D m_navigationAnchor;                     // 当前拖动操作锚点。
     bool m_hasNavigationAnchor;                       // 当前是否存在拖动锚点。
 

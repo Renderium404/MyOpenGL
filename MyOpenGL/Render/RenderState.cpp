@@ -24,5 +24,6 @@ bool RenderViewport::isValid() const
 RenderState::RenderState()
     : depthTestEnabled(true)
     , depthWriteEnabled(true)
+    , blendEnabled(false)
 {
 }

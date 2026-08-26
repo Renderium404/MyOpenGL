@@ -54,6 +54,11 @@ SOURCES += \
     $$PWD/Viewer/Modeling/SimpleModeling.cpp \
     $$PWD/Viewer/System/CoordinateSystem.cpp \
     $$PWD/Viewer/System/ViewNavigation.cpp \
+    $$PWD/Viewer/Measurement/MeasurementTool.cpp \
+    $$PWD/Viewer/Measurement/Length2DMeasurement.cpp \
+    $$PWD/Viewer/Measurement/Length3DMeasurement.cpp \
+    $$PWD/Viewer/Measurement/Angle2DMeasurement.cpp \
+    $$PWD/Viewer/Measurement/Angle3DMeasurement.cpp \
     $$PWD/Viewer/OpenGLViewerWidget.cpp
 
 #-------------------------------------------------
@@ -98,4 +103,9 @@ HEADERS += \
     $$PWD/Viewer/Modeling/SimpleModeling.h \
     $$PWD/Viewer/System/CoordinateSystem.h \
     $$PWD/Viewer/System/ViewNavigation.h \
+    $$PWD/Viewer/Measurement/MeasurementTool.h \
+    $$PWD/Viewer/Measurement/Length2DMeasurement.h \
+    $$PWD/Viewer/Measurement/Length3DMeasurement.h \
+    $$PWD/Viewer/Measurement/Angle2DMeasurement.h \
+    $$PWD/Viewer/Measurement/Angle3DMeasurement.h \
     $$PWD/Viewer/OpenGLViewerWidget.h

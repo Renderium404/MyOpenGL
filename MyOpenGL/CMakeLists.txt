@@ -44,6 +44,8 @@ add_library(MyOpenGLCore STATIC
     Item/Transform.h
     Item/RenderPart.cpp
     Item/RenderPart.h
+    Item/RenderLabel.cpp
+    Item/RenderLabel.h
     Item/RenderPartUpdate.cpp
     Item/RenderPartUpdate.h
     Item/RenderItem.cpp

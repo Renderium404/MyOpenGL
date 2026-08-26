@@ -25,9 +25,9 @@ public:
     void drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const override;
 
 private:
-    bool viewportPointToScene(OpenGLViewerWidget* viewer, const QPoint& viewportPosition, MeasurementPoint& point) const;
+    bool viewportPointToScene(OpenGLViewerWidget* viewer, const QPointF& viewportPosition, MeasurementPoint& point) const;
     bool ensureResultMaterial(OpenGLViewerWidget* viewer);
-    bool commitResult(OpenGLViewerWidget* viewer, const QVector3D& start, const QVector3D& end);
+    bool commitResult(OpenGLViewerWidget* viewer, const MeasurementPoint& start, const MeasurementPoint& end);
     QString pointText(const MeasurementPoint& point) const;
 
 private:
@@ -35,7 +35,7 @@ private:
 
     MeasurementPoint m_startPoint;
     MeasurementPoint m_endPoint;
-    MeasurementPoint m_previewPoint;
+    MeasurementPoint m_currentPoint;
 
     QPointF m_cursorPosition;
     bool m_hasCursorPosition;

@@ -2,12 +2,16 @@
 #define MEASUREMENTTOOL_H
 
 #include <QPointF>
+#include <QString>
 #include <QVector3D>
 
 class QKeyEvent;
 class QMouseEvent;
 class QPainter;
+
 class OpenGLViewerWidget;
+class RenderItem;
+class RenderLabel;
 
 /// 测量类型。
 enum class MeasurementType
@@ -61,9 +65,23 @@ public:
     virtual bool mouseReleaseEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) = 0;
     virtual bool keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event) = 0;
 
+    /// 绘制当前交互过程中的临时 Overlay。
     virtual void drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const = 0;
+
 protected:
-    static void drawOverlayLabel(QPainter& painter, const QPointF& position, const QString& text);
+    /// 创建持久化测量 Label。
+    ///
+    /// Label 会挂到指定 RenderItem 上。
+    /// anchorPosition 位于 Item Local Space。
+    /// pixelOffset 使用 Qt 风格屏幕坐标：
+    /// +X 向右，+Y 向下。
+    ///
+    /// Geometry / Texture / Material 由 Viewer 对应 Manager 管理，
+    /// RenderLabel 自身只借用这些资源。
+    static RenderLabel* createPersistentLabel(OpenGLViewerWidget* viewer,RenderItem* item,const QVector3D& anchorPosition,const QPointF& pixelOffset,const QString& text);
+
+    /// 绘制交互过程中的临时 QPainter Label。
+    static void drawOverlayLabel(QPainter& painter,const QPointF& position,const QString& text);
 };
 
 #endif // MEASUREMENTTOOL_H

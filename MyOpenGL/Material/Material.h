@@ -5,6 +5,7 @@
 #include <QVector4D>
 
 class MaterialManager;
+class Texture;
 
 /// 材质唯一标识类型，由 MaterialManager 统一分配。
 typedef unsigned int MaterialId;
@@ -13,11 +14,11 @@ typedef unsigned int MaterialId;
 const MaterialId InvalidMaterialId = 0;
 
 /// 材质表面颜色来源。
-/// 后续可拓展为纹理材质
 enum class SurfaceMode
 {
-    Color,      // 使用 Material 统一颜色。
-    VertexColor // 使用 Geometry 顶点颜色插值。
+    Color,       // 使用 Material 统一颜色。
+    VertexColor, // 使用 Geometry 顶点颜色插值。
+    Texture      // 使用二维纹理采样颜色。
 };
 
 /// 基础表面材质。
@@ -40,8 +41,14 @@ public:
     bool setSurfaceMode(SurfaceMode mode);
 
     /// 统一颜色
+    /// Texture 模式下作为纹理颜色乘数使用。
     const QVector4D& color() const { return m_color; }
     bool setColor(const QVector4D& color);
+
+    /// 纹理
+    Texture* texture() { return m_texture; }
+    const Texture* texture() const { return m_texture; }
+    void setTexture(Texture* texture) { m_texture = texture; }
 
 private:
     friend class MaterialManager;
@@ -57,7 +64,8 @@ private:
     QString m_name;            // 材质名称。
     SurfaceMode m_type;        // 表面颜色来源。
     bool m_lightingEnabled;    // 是否受到场景光照影响。
-    QVector4D m_color;         // Color 模式使用的统一颜色。
+    QVector4D m_color;         // Color 模式颜色；Texture 模式作为纹理颜色乘数。
+    Texture* m_texture;        // Texture 模式使用的纹理，不拥有对象。
 };
 
 #endif // MATERIAL_H

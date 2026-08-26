@@ -4,7 +4,7 @@
 #include "RenderPart.h"
 #include "RenderPartUpdate.h"
 #include "Transform.h"
-
+#include "RenderLabel.h"
 #include <QString>
 #include <QVector3D>
 #include <QVector4D>
@@ -29,7 +29,6 @@ enum class DisplayMode
     Wireframe,      // Triangle Geometry 以统一边线形式绘制。
     ShadedWithEdges // 先绘制表面，再叠加统一边线。
 };
-
 /// 一次 RenderItem Bounds Raycast 的最近命中结果。
 /// RenderPart 是 Item 内最小用户交互模型单位，因此命中结果明确返回 PartId。
 /// distance 为 World Ray Origin 到命中点的世界空间前向距离；position 为世界空间命中坐标。
@@ -82,7 +81,24 @@ public:
     /// 按稳定 RenderPartId 查询 RenderPart；不存在时返回 0。
     RenderPart* part(RenderPartId id);
     const RenderPart* part(RenderPartId id) const;
-
+    /// Label 管理
+    /// 创建并接管一个新的 RenderLabel。
+    /// RenderLabelId 由当前 RenderItem 自动分配。
+    RenderLabel* createLabel();
+    /// 删除指定 RenderLabel。
+    bool removeLabel(RenderLabelId id);
+    /// 删除当前 Item 拥有的全部 RenderLabel。
+    void clearLabels();
+    /// 当前 Label 数量。
+    int labelCount() const;
+    /// 判断 LabelId 是否属于当前 Item。
+    bool containsLabel(RenderLabelId id) const;
+    /// 按创建顺序访问 Label。
+    RenderLabel* labelAt(int index);
+    const RenderLabel* labelAt(int index) const;
+    /// 按稳定 LabelId 查询 Label。
+    RenderLabel* label(RenderLabelId id);
+    const RenderLabel* label(RenderLabelId id) const;
     /// Part Update
 
     /// 应用一个 RenderPart 更新。
@@ -138,7 +154,6 @@ public:
     /// 当前 Item 是否参与正常 Viewer 绘制。
     bool isVisible() const;
     void setVisible(bool visible);
-
     /// 返回或设置整个 Item 的显示模式。
     bool setDisplayMode(DisplayMode mode);
 
@@ -161,7 +176,7 @@ private:
 
     /// PartManager 内部接口
     RenderPartId allocatePartId();
-
+    RenderLabelId allocateLabelId();
     /// 根据全部具有有效 LocalBounds 的 RenderPart 重建 Item LocalBounds 聚合缓存。
     void rebuildLocalBoundsCache() const;
 
@@ -173,6 +188,10 @@ private:
     std::map<RenderPartId, RenderPart*> m_partsById; // RenderPartId 到 RenderPart 的快速查询。
     RenderPartId m_nextPartId;                      // 下一个可分配 RenderPartId。
 
+    std::vector<RenderLabel*> m_labels;
+    std::map<RenderLabelId, RenderLabel*> m_labelsById;
+    RenderLabelId m_nextLabelId;
+    
     const Material* m_material;                      // Item 级借用 Material，不拥有。
     Transform m_transform;                           // Item Local -> World Transform。
 

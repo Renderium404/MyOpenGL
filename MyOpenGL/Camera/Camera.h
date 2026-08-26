@@ -72,10 +72,8 @@ public:
 
     // 相机矩阵：把相机局部坐标转换到世界坐标。
     QMatrix4x4 cameraMatrix() const;
-
     // 视图矩阵：把世界坐标转换到相机局部坐标。
     QMatrix4x4 viewMatrix() const;
-
     //投影矩阵，将基于相机坐标系的点转换到屏幕上
     QMatrix4x4 projectionMatrix(float aspect) const;
 
@@ -84,11 +82,9 @@ public:
     // 将屏幕像素坐标和深度值逆投影到相机坐标系。
     // depth 范围为 [0,1]：0 表示 Near Plane，1 表示 Far Plane。
     bool screenToCamera(float screenPointX, float screenPointY, float depth, int viewportWidth, int viewportHeight, QVector3D& cameraPoint) const;
-
     // 将相机坐标系中的点投影到屏幕像素坐标。
     // depth 范围为 [0,1]：0 表示 Near Plane，1 表示 Far Plane。
     bool cameraToScreen(const QVector3D& cameraPoint, int viewportWidth, int viewportHeight, float& screenPointX, float& screenPointY, float& depth) const;
-
     // 将屏幕像素位置转换为世界坐标系 Picking Ray。
     bool screenPointToRay(float screenPointX, float screenPointY, int viewportWidth, int viewportHeight, QVector3D& rayOrigin, QVector3D& rayDirection) const;
 

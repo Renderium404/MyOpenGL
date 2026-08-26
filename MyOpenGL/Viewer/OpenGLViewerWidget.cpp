@@ -14,6 +14,8 @@
 #include <QPainter>
 #include <QPaintEvent>
 #include <QResizeEvent>
+#include <QPoint>
+#include <QPointF>
 #include <cmath>
 #include <algorithm>
 #include "MyOpenGL/Camera/Camera.h"
@@ -21,6 +23,7 @@
 #include "MyOpenGL/Item/RenderPart.h"
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/Geometry.h"
+#include "MyOpenGL/Resource/Texture.h"
 #include "MyOpenGL/Viewer/Modeling/PrimitiveMeshBuilder.h"
 class ViewportOverlayWidget : public QWidget
 {
@@ -652,6 +655,11 @@ bool OpenGLViewerWidget::drawItems(const ItemManager& itemManager, const RenderC
 {
     const int itemCount = static_cast<int>(itemManager.count());
 
+    /// 第一阶段：
+    /// 绘制全部 Item 的 World Space RenderPart。
+    ///
+    /// 必须先把所有实体 Geometry 画完，
+    /// 避免后续 Item Geometry 覆盖已经绘制的 Screen Label。
     for (int itemIndex = 0; itemIndex < itemCount; ++itemIndex)
     {
         const RenderItem* item = itemManager.itemAt(itemIndex);
@@ -659,9 +667,32 @@ bool OpenGLViewerWidget::drawItems(const ItemManager& itemManager, const RenderC
         if (item == 0)
             continue;
 
-        if (!drawItem(item, context, lights))
+        if (!drawItemParts(item, context, lights))
         {
-            qWarning() << "OpenGLViewerWidget drawItems failed while drawing Item:" << item->name();
+            qWarning() << "OpenGLViewerWidget drawItems failed while drawing Item Parts:"
+                       << item->name();
+
+            return false;
+        }
+    }
+
+    /// 第二阶段：
+    /// 绘制全部 Item 的持久化 Screen Label。
+    ///
+    /// Label 禁用 Depth Test / Depth Write，
+    /// 因此属于当前 ItemManager 的屏幕前景内容。
+    for (int itemIndex = 0; itemIndex < itemCount; ++itemIndex)
+    {
+        const RenderItem* item = itemManager.itemAt(itemIndex);
+
+        if (item == 0)
+            continue;
+
+        if (!drawItemLabels(item, context))
+        {
+            qWarning() << "OpenGLViewerWidget drawItems failed while drawing Item Labels:"
+                       << item->name();
+
             return false;
         }
     }
@@ -669,7 +700,7 @@ bool OpenGLViewerWidget::drawItems(const ItemManager& itemManager, const RenderC
     return true;
 }
 
-bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights)
+bool OpenGLViewerWidget::drawItemParts(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights)
 {
     if (item == 0)
         return false;
@@ -677,13 +708,22 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
     if (!item->isVisible() || item->partCount() == 0)
         return true;
 
+    /// 整个 Item 的 RenderPart 共用正常 World RenderState。
     RenderState state;
+
     state.model = item->transform().matrix();
     state.view = context.view;
     state.projection = context.projection;
-    state.viewport = RenderViewport(0, 0, context.viewportWidth, context.viewportHeight);
+
+    state.viewport = RenderViewport(
+        0,
+        0,
+        context.viewportWidth,
+        context.viewportHeight);
+
     state.depthTestEnabled = item->depthTestEnabled();
     state.depthWriteEnabled = true;
+    state.blendEnabled = false;
 
     const Material* material = item->material();
 
@@ -695,72 +735,198 @@ bool OpenGLViewerWidget::drawItem(const RenderItem* item, const RenderContext& c
             continue;
 
         const Geometry* geometry = part->geometry();
+
         bool drawSucceeded = false;
 
-        // Lines / LineStrip 不使用 Triangle 的 Wireframe DisplayMode。
-        // 它们始终按照自身 RenderType 和 Material 正常绘制。
+        /// Lines / LineStrip 不使用 Triangle 的 Wireframe DisplayMode。
+        ///
+        /// 它们始终按照自身 RenderType 和 Item Material 正常绘制。
         if (geometry->renderType() != RenderType::Triangles)
         {
             if (material == 0)
             {
-                qWarning() << "OpenGLViewerWidget drawItem failed: non-triangle Part requires Material:"
+                qWarning() << "OpenGLViewerWidget drawItemParts failed: non-triangle Part requires Material:"
                            << "Item=" << item->name()
                            << "PartId=" << static_cast<qulonglong>(part->id());
+
                 return false;
             }
 
-            drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
+            drawSucceeded = m_renderer.drawGeometry(
+                geometry,
+                material,
+                state,
+                lights);
         }
         else
         {
             switch (item->displayMode())
             {
             case DisplayMode::Shaded:
+            {
                 if (material == 0)
                 {
-                    qWarning() << "OpenGLViewerWidget drawItem failed: shaded Part requires Material:"
+                    qWarning() << "OpenGLViewerWidget drawItemParts failed: shaded Part requires Material:"
                                << "Item=" << item->name()
                                << "PartId=" << static_cast<qulonglong>(part->id());
+
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
+                drawSucceeded = m_renderer.drawGeometry(
+                    geometry,
+                    material,
+                    state,
+                    lights);
+
                 break;
+            }
 
             case DisplayMode::Wireframe:
-                drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, false);
+            {
+                drawSucceeded = m_renderer.drawWireGeometry(
+                    geometry,
+                    item->edgeColor(),
+                    state,
+                    false);
+
                 break;
+            }
 
             case DisplayMode::ShadedWithEdges:
+            {
                 if (material == 0)
                 {
-                    qWarning() << "OpenGLViewerWidget drawItem failed: shaded Part requires Material:"
+                    qWarning() << "OpenGLViewerWidget drawItemParts failed: shaded Part requires Material:"
                                << "Item=" << item->name()
                                << "PartId=" << static_cast<qulonglong>(part->id());
+
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
+                drawSucceeded = m_renderer.drawGeometry(
+                    geometry,
+                    material,
+                    state,
+                    lights);
 
                 if (drawSucceeded)
-                    drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, true);
+                {
+                    drawSucceeded = m_renderer.drawWireGeometry(
+                        geometry,
+                        item->edgeColor(),
+                        state,
+                        true);
+                }
 
                 break;
+            }
             }
         }
 
         if (!drawSucceeded)
         {
-            qWarning() << "OpenGLViewerWidget drawItem failed while drawing RenderPart:"
+            qWarning() << "OpenGLViewerWidget drawItemParts failed while drawing RenderPart:"
                        << "Item=" << item->name()
                        << "PartId=" << static_cast<qulonglong>(part->id())
                        << "Geometry=" << geometry->name();
+
             return false;
         }
     }
 
     return true;
 }
+
+bool OpenGLViewerWidget::drawItemLabels(const RenderItem* item, const RenderContext& context)
+{
+    if (item == 0)
+        return false;
+    if (!item->isVisible() || item->labelCount() == 0)
+        return true;
+    if (!context.isValid())
+        return false;
+
+    /// Label 不参与任何场景光照。
+    const std::vector<const Light*> noLights;
+    /// Item Local -> World。
+    const QMatrix4x4 itemModel = item->transform().matrix();
+    for (int labelIndex = 0; labelIndex < item->labelCount(); ++labelIndex)
+    {
+        const RenderLabel* label = item->labelAt(labelIndex);
+        if (label == 0)
+            continue;
+        if (!label->isRenderable())
+            continue;
+        const Geometry* geometry = label->geometry();
+        const Material* material = label->material();
+        if (geometry == 0 || material == 0)
+            continue;
+        const QVector3D worldPosition =itemModel.map(label->anchorPosition());
+        const QVector4D clip =context.projection *context.view *QVector4D(worldPosition, 1.0f);
+        /// Label 位于 Camera 后方或投影无效。
+        if (clip.w() <= 1.0e-8f)
+            continue;
+        /// ------------------------------------------------
+        /// Clip -> NDC
+        /// ------------------------------------------------
+        const float ndcX = clip.x() / clip.w();
+        const float ndcY = clip.y() / clip.w();
+        const float ndcZ = clip.z() / clip.w();
+        /// 锚点不在当前 View Frustum 中时不绘制 Label。
+        if (ndcX < -1.0f || ndcX > 1.0f ||
+            ndcY < -1.0f || ndcY > 1.0f ||
+            ndcZ < -1.0f || ndcZ > 1.0f)
+        {
+            continue;
+        }
+        float pixelX =(ndcX * 0.5f + 0.5f) *static_cast<float>(context.viewportWidth);
+        float pixelY =(ndcY * 0.5f + 0.5f) *static_cast<float>(context.viewportHeight);
+        pixelX += static_cast<float>(label->pixelOffset().x());
+        pixelY -= static_cast<float>(label->pixelOffset().y());
+        /// Raster Label 对齐最终屏幕 Pixel。
+        ///
+        /// 避免 Texture Quad 落在半 Pixel / 亚 Pixel 位置，
+        /// 造成字体重新采样后发虚。
+        pixelX = static_cast<float>(qRound(pixelX));
+        pixelY = static_cast<float>(qRound(pixelY));
+        /// ------------------------------------------------
+        /// Screen RenderState
+        /// ------------------------------------------------
+        RenderState state;
+        state.model.setToIdentity();
+        state.model.translate(pixelX, pixelY, 0.0f);
+        state.view.setToIdentity();
+        state.projection.setToIdentity();
+        state.projection.ortho(0.0f,static_cast<float>(context.viewportWidth),0.0f,static_cast<float>(context.viewportHeight),-1.0f,1.0f);
+        state.viewport = RenderViewport(0,0,context.viewportWidth,context.viewportHeight);
+
+        /// Label 始终显示在当前 ItemManager Geometry 前方。
+        state.depthTestEnabled = false;
+        state.depthWriteEnabled = false;
+        /// Texture Label 使用 Alpha。
+        state.blendEnabled = true;
+        /// ------------------------------------------------
+        /// Draw
+        /// ------------------------------------------------
+        if (!m_renderer.drawGeometry(
+                geometry,
+                material,
+                state,
+                noLights))
+        {
+            qWarning() << "OpenGLViewerWidget drawItemLabels failed:"
+                       << "Item=" << item->name()
+                       << "LabelId=" << static_cast<qulonglong>(label->id());
+
+            return false;
+        }
+    }
+
+    return true;
+}
+
+
 
 /// Camera
 
@@ -875,7 +1041,10 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
         return false;
 
     std::vector<ResourceId> geometryIds;
+    std::vector<ResourceId> textureIds;
+    std::vector<MaterialId> materialIds;
 
+    /// 收集 RenderPart Geometry。
     for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
     {
         const RenderPart* part = item->partAt(partIndex);
@@ -885,14 +1054,52 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
         const ResourceId geometryId = part->geometry()->id();
 
-        if (geometryId == InvalidResourceId)
-            continue;
-
-        if (std::find(geometryIds.begin(), geometryIds.end(), geometryId) == geometryIds.end())
+        if (geometryId != InvalidResourceId && std::find(geometryIds.begin(), geometryIds.end(), geometryId) == geometryIds.end())
             geometryIds.push_back(geometryId);
     }
 
-    if (!m_measurementItemManager.remove(item->id()))
+    /// 收集 RenderLabel Geometry / Material / Texture。
+    for (int labelIndex = 0; labelIndex < item->labelCount(); ++labelIndex)
+    {
+        const RenderLabel* label = item->labelAt(labelIndex);
+
+        if (label == 0)
+            continue;
+
+        if (label->geometry() != 0)
+        {
+            const ResourceId geometryId = label->geometry()->id();
+
+            if (geometryId != InvalidResourceId && std::find(geometryIds.begin(), geometryIds.end(), geometryId) == geometryIds.end())
+                geometryIds.push_back(geometryId);
+        }
+
+        const Material* material = label->material();
+
+        if (material == 0)
+            continue;
+
+        const MaterialId materialId = material->id();
+
+        if (materialId != InvalidMaterialId && std::find(materialIds.begin(), materialIds.end(), materialId) == materialIds.end())
+            materialIds.push_back(materialId);
+
+        const Texture* texture = material->texture();
+
+        if (texture == 0)
+            continue;
+
+        const ResourceId textureId = texture->id();
+
+        if (textureId != InvalidResourceId && std::find(textureIds.begin(), textureIds.end(), textureId) == textureIds.end())
+            textureIds.push_back(textureId);
+    }
+
+    const RenderItemId itemId = item->id();
+
+    /// 先删除 Item。
+    /// RenderItem 会销毁自己拥有的 RenderPart 和 RenderLabel，但不会删除其借用的 Geometry / Material / Texture。
+    if (!m_measurementItemManager.remove(itemId))
         return false;
 
     bool contextCurrent = false;
@@ -911,11 +1118,33 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
     bool result = true;
 
-    for (std::size_t index = 0; index < geometryIds.size(); ++index)
+    /// 删除 Label Material。
+    /// MaterialManager::remove() 不会删除 Material 引用的 Texture，所以 Texture 单独在下面释放。
+    for (std::size_t materialIndex = 0; materialIndex < materialIds.size(); ++materialIndex)
     {
-        if (!m_resourceManager.remove(geometryIds[index], gl))
+        if (!m_materialManager.remove(materialIds[materialIndex]))
         {
-            qWarning() << "OpenGLViewerWidget removeMeasurementItemAt failed to remove Geometry:" << static_cast<qulonglong>(geometryIds[index]);
+            qWarning() << "OpenGLViewerWidget removeMeasurementItemAt failed to remove Label Material:" << static_cast<qulonglong>(materialIds[materialIndex]);
+            result = false;
+        }
+    }
+
+    /// 删除 Part / Label Geometry。
+    for (std::size_t geometryIndex = 0; geometryIndex < geometryIds.size(); ++geometryIndex)
+    {
+        if (!m_resourceManager.remove(geometryIds[geometryIndex], gl))
+        {
+            qWarning() << "OpenGLViewerWidget removeMeasurementItemAt failed to remove Geometry:" << static_cast<qulonglong>(geometryIds[geometryIndex]);
+            result = false;
+        }
+    }
+
+    /// 删除 Label Texture。
+    for (std::size_t textureIndex = 0; textureIndex < textureIds.size(); ++textureIndex)
+    {
+        if (!m_resourceManager.remove(textureIds[textureIndex], gl))
+        {
+            qWarning() << "OpenGLViewerWidget removeMeasurementItemAt failed to remove Texture:" << static_cast<qulonglong>(textureIds[textureIndex]);
             result = false;
         }
     }
@@ -925,6 +1154,20 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
     return result;
 }
+bool OpenGLViewerWidget::scenePointAtWorld(const QPointF& scene, QVector3D& world) const
+{
+    if (width() <= 0 || height() <= 0)
+        return false;
+    if(scene.x() >= 0.0 &&scene.x() < width() &&scene.y() >= 0.0 &&scene.y() < height())
+        return scenePointAtWorldFromDepth(scene, world);
+    return scenePointAtWorldFromRay(scene, world);
+}
+bool OpenGLViewerWidget::worldPointAtScene(const QVector3D& world, QPointF& scene) const
+{
+    return projectWorldPointToScene(world,scene);
+}
+
+
 
 bool OpenGLViewerWidget::navigationAnchor(QVector3D& anchor) const
 {
@@ -942,7 +1185,7 @@ bool OpenGLViewerWidget::navigationAnchor(QVector3D& anchor) const
     return true;
 }
 
-QVector3D OpenGLViewerWidget::screenPointToZoomAnchor(const QPoint& position) const
+QVector3D OpenGLViewerWidget::screenPointToZoomAnchor(const QPointF& position) const
 {
     const Camera* camera = m_cameraManager.activeCamera();
 
@@ -979,7 +1222,12 @@ QVector3D OpenGLViewerWidget::screenPointToZoomAnchor(const QPoint& position) co
 
     return rayOrigin + rayDirection * distance;
 }
-QVector3D OpenGLViewerWidget::screenPointToAnchor(const QPoint& position) const
+
+
+
+
+
+QVector3D OpenGLViewerWidget::screenPointToAnchor(const QPointF& position) const
 {
     QVector3D scenePoint;
 
@@ -992,6 +1240,109 @@ QVector3D OpenGLViewerWidget::screenPointToAnchor(const QPoint& position) const
         return anchor;
 
     return m_coordinateSystem.worldOrigin();
+}
+
+bool OpenGLViewerWidget::scenePointAtWorldFromDepth(const QPointF& scene, QVector3D& world) const
+{
+    if (!m_sceneDepthValid || m_sceneDepthWidth <= 0 || m_sceneDepthHeight <= 0)
+        return false;
+
+    if (width() <= 0 || height() <= 0)
+        return false;
+
+    if (scene.x() < 0.0 || scene.x() >= width() || scene.y() < 0.0 || scene.y() >= height())
+        return false;
+
+    const int pixelX = static_cast<int>((scene.x() + 0.5) * m_sceneDepthWidth / width());
+    const int pixelY = m_sceneDepthHeight - 1 - static_cast<int>((scene.y() + 0.5) * m_sceneDepthHeight / height());
+
+    if (pixelX < 0 || pixelX >= m_sceneDepthWidth || pixelY < 0 || pixelY >= m_sceneDepthHeight)
+        return false;
+
+    const float depth = m_sceneDepthBuffer[pixelY * m_sceneDepthWidth + pixelX];
+
+    if (depth >= 1.0f - 1.0e-7f)
+        return false;
+
+    const float ndcX = (static_cast<float>(pixelX) + 0.5f) / static_cast<float>(m_sceneDepthWidth) * 2.0f - 1.0f;
+    const float ndcY = (static_cast<float>(pixelY) + 0.5f) / static_cast<float>(m_sceneDepthHeight) * 2.0f - 1.0f;
+    const float ndcZ = depth * 2.0f - 1.0f;
+
+    const QVector4D worldPoint = m_sceneDepthInverseViewProjection * QVector4D(ndcX, ndcY, ndcZ, 1.0f);
+
+    if (qAbs(worldPoint.w()) <= 1.0e-8f)
+        return false;
+
+    world = QVector3D(worldPoint.x() / worldPoint.w(), worldPoint.y() / worldPoint.w(), worldPoint.z() / worldPoint.w());
+
+    return true;
+}
+bool OpenGLViewerWidget::scenePointAtWorldFromRay(const QPointF& scene, QVector3D& world) const
+{
+    const Camera* camera = m_cameraManager.activeCamera();
+    if (camera == 0 || width() <= 0 || height() <= 0)
+        return false;
+    //提取射线
+    QVector3D rayOrigin;
+    QVector3D rayDirection;
+    if (!camera->screenPointToRay(scene.x(), scene.y(), width(), height(), rayOrigin, rayDirection))
+        return false;
+
+    bool found = false;
+    float nearestDistance = 0.0f;
+    QVector3D nearestPoint;
+
+    const int itemCount = static_cast<int>(m_itemManager.count());
+    //遍历Item检查是否存在Item与光线相交
+    for (int index = 0; index < itemCount; ++index)
+    {
+        const RenderItem* item = m_itemManager.itemAt(index);
+        if (item == 0 || !item->isVisible())
+            continue;
+        RenderItemRayHit hit;
+        if (!item->raycast(rayOrigin, rayDirection, hit))
+            continue;
+        //找到最小的相交点
+        if (!found || hit.distance < nearestDistance)
+        {
+            found = true;
+            nearestDistance = hit.distance;
+            nearestPoint = hit.position;
+        }
+    }
+
+    if (!found)
+        return false;
+
+    world = nearestPoint;
+    return true;
+}
+bool OpenGLViewerWidget::projectWorldPointToScene(const QVector3D& world, QPointF& scene) const
+{
+    if (width() <= 0 || height() <= 0)
+        return false;
+
+    const Camera* camera = m_cameraManager.activeCamera();
+
+    if (camera == 0)
+        return false;
+
+    const float aspect = static_cast<float>(width()) / static_cast<float>(height());
+    const QVector4D clip = camera->projectionMatrix(aspect) * camera->viewMatrix() * QVector4D(world, 1.0f);
+
+    if (qAbs(clip.w()) <= 1.0e-8f)
+        return false;
+
+    if (camera->projectionType() == ProjectionType::Perspective && clip.w() <= 0.0f)
+        return false;
+
+    const double ndcX = static_cast<double>(clip.x() / clip.w());
+    const double ndcY = static_cast<double>(clip.y() / clip.w());
+
+    scene.setX((ndcX * 0.5 + 0.5) * width());
+    scene.setY((0.5 - ndcY * 0.5) * height());
+
+    return true;
 }
 
 bool OpenGLViewerWidget::setStandardView(ViewNavigationFace face)
@@ -1026,75 +1377,6 @@ bool OpenGLViewerWidget::setStandardView(ViewNavigationFace face)
     return true;
 }
 
-bool OpenGLViewerWidget::scenePointAtWorld(const QPoint& sence, QVector3D& world) const
-{
-    if (!m_sceneDepthValid || m_sceneDepthWidth <= 0 || m_sceneDepthHeight <= 0)
-        return false;
-
-    if (width() <= 0 || height() <= 0)
-        return false;
-
-    if (sence.x() < 0 || sence.x() >= width() || sence.y() < 0 || sence.y() >= height())
-        return false;
-
-    const int pixelX = static_cast<int>((sence.x() + 0.5f) * m_sceneDepthWidth / width());
-    const int pixelY = m_sceneDepthHeight - 1 - static_cast<int>((sence.y() + 0.5f) * m_sceneDepthHeight / height());
-
-    if (pixelX < 0 || pixelX >= m_sceneDepthWidth || pixelY < 0 || pixelY >= m_sceneDepthHeight)
-        return false;
-
-    const float depth = m_sceneDepthBuffer[pixelY * m_sceneDepthWidth + pixelX];
-
-    if (depth >= 1.0f - 1.0e-7f)
-        return false;
-
-    const float ndcX = (static_cast<float>(pixelX) + 0.5f) / static_cast<float>(m_sceneDepthWidth) * 2.0f - 1.0f;
-    const float ndcY = (static_cast<float>(pixelY) + 0.5f) / static_cast<float>(m_sceneDepthHeight) * 2.0f - 1.0f;
-    const float ndcZ = depth * 2.0f - 1.0f;
-
-    const QVector4D worldPoint = m_sceneDepthInverseViewProjection * QVector4D(ndcX, ndcY, ndcZ, 1.0f);
-
-    if (qAbs(worldPoint.w()) <= 1.0e-8f)
-        return false;
-
-    world = QVector3D(worldPoint.x() / worldPoint.w(), worldPoint.y() / worldPoint.w(), worldPoint.z() / worldPoint.w());
-
-    return true;
-}
-
-bool OpenGLViewerWidget::worldPointAtScene(const QVector3D& world, QPoint& sence) const
-{
-    if (width() <= 0 || height() <= 0)
-        return false;
-
-    const Camera* camera = m_cameraManager.activeCamera();
-
-    if (camera == 0)
-        return false;
-
-    const float aspect = static_cast<float>(width()) / static_cast<float>(height());
-    const QVector4D clip = camera->projectionMatrix(aspect) * camera->viewMatrix() * QVector4D(world, 1.0f);
-
-    if (qAbs(clip.w()) <= 1.0e-8f)
-        return false;
-
-    if (camera->projectionType() == ProjectionType::Perspective && clip.w() <= 0.0f)
-        return false;
-
-    const float ndcX = clip.x() / clip.w();
-    const float ndcY = clip.y() / clip.w();
-    const float ndcZ = clip.z() / clip.w();
-
-    if (ndcX < -1.0f || ndcX > 1.0f || ndcY < -1.0f || ndcY > 1.0f || ndcZ < -1.0f || ndcZ > 1.0f)
-        return false;
-
-    const float pixelX = (ndcX * 0.5f + 0.5f) * width();
-    const float pixelY = (0.5f - ndcY * 0.5f) * height();
-
-    sence = QPoint(qRound(pixelX), qRound(pixelY));
-
-    return true;
-}
 bool OpenGLViewerWidget::cacheSceneDepth(const RenderContext& context)
 {
     QOpenGLFunctions_3_3_Core* gl = m_openGLContext.gl();
@@ -1219,8 +1501,8 @@ void OpenGLViewerWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
-    const QPoint currentPosition = event->pos();
-    const QPoint delta = currentPosition - m_lastMousePosition;
+    const QPointF currentPosition = event->pos();
+    const QPointF delta = currentPosition - m_lastMousePosition;
 
     m_lastMousePosition = currentPosition;
 
@@ -1255,13 +1537,21 @@ void OpenGLViewerWidget::mouseMoveEvent(QMouseEvent* event)
 
 void OpenGLViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (m_measurementTool != 0 && m_measurementTool->mouseReleaseEvent(this, event))
+    if (m_measurementTool != 0)
     {
-        event->accept();
-        update();
-        return;
-    }
+        MeasurementTool* tool = m_measurementTool;
+        const bool handled = tool->mouseReleaseEvent(this, event);
 
+        if (event->button() == Qt::LeftButton && tool->state() == MeasurementState::Finished)
+            emit measurementFinished(tool->type());
+
+        if (handled)
+        {
+            event->accept();
+            update();
+            return;
+        }
+    }
     if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)
     {
         m_hasNavigationAnchor = false;
@@ -1366,6 +1656,8 @@ bool OpenGLViewerWidget::handleKeyPress(QKeyEvent* event)
 }
 void OpenGLViewerWidget::drawViewportOverlay(QPainter& painter)
 {
+
+    /// 当前正在操作的临时 Overlay。
     if (m_measurementTool != 0)
         m_measurementTool->drawOverlay(this, painter);
 }

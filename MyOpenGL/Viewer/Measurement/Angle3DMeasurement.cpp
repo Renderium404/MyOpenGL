@@ -1,10 +1,11 @@
 #include "Angle3DMeasurement.h"
 
-#include <QFontMetrics>
+#include <QDebug>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPen>
+#include <QtMath>
 
 #include <cmath>
 #include <vector>
@@ -41,7 +42,7 @@ void Angle3DMeasurement::reset()
     m_firstPoint = MeasurementPoint();
     m_vertexPoint = MeasurementPoint();
     m_endPoint = MeasurementPoint();
-    m_previewPoint = MeasurementPoint();
+    m_currentPoint = MeasurementPoint();
 
     m_cursorPosition = QPointF();
     m_hasCursorPosition = false;
@@ -52,7 +53,7 @@ bool Angle3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent
     if (viewer == 0 || event == 0)
         return false;
 
-    m_cursorPosition = event->pos();
+    m_cursorPosition = event->localPos();
     m_hasCursorPosition = true;
 
     if (event->button() != Qt::LeftButton)
@@ -60,22 +61,20 @@ bool Angle3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent
 
     MeasurementPoint point;
 
+    if (!viewportPointToScene(viewer, event->localPos(), point))
+    {
+        m_currentPoint = MeasurementPoint();
+        viewer->update();
+        return true;
+    }
+
+    m_currentPoint = point;
+
     if (m_state == MeasurementState::Idle || m_state == MeasurementState::Finished)
     {
-        m_firstPoint = MeasurementPoint();
+        m_firstPoint = point;
         m_vertexPoint = MeasurementPoint();
         m_endPoint = MeasurementPoint();
-        m_pointCount = 0;
-
-        if (!viewportPointToScene(viewer, event->pos(), point))
-        {
-            m_previewPoint = MeasurementPoint();
-            viewer->update();
-            return true;
-        }
-
-        m_firstPoint = point;
-        m_previewPoint = point;
         m_pointCount = 1;
         m_state = MeasurementState::Collecting;
 
@@ -85,15 +84,7 @@ bool Angle3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent
 
     if (m_pointCount == 1)
     {
-        if (!viewportPointToScene(viewer, event->pos(), point))
-        {
-            m_previewPoint = MeasurementPoint();
-            viewer->update();
-            return true;
-        }
-
         m_vertexPoint = point;
-        m_previewPoint = point;
         m_pointCount = 2;
 
         viewer->update();
@@ -102,18 +93,14 @@ bool Angle3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent
 
     if (m_pointCount == 2)
     {
-        if (!viewportPointToScene(viewer, event->pos(), point))
+        if (!commitResult(viewer, m_firstPoint, m_vertexPoint, point))
         {
-            m_previewPoint = MeasurementPoint();
+            qWarning() << "Angle3DMeasurement mousePressEvent failed to commit result.";
             viewer->update();
             return true;
         }
 
-        if (!commitResult(viewer, m_firstPoint.worldPosition, m_vertexPoint.worldPosition, point.worldPosition))
-            return true;
-
         m_endPoint = point;
-        m_previewPoint = MeasurementPoint();
         m_pointCount = 3;
         m_state = MeasurementState::Finished;
 
@@ -129,15 +116,15 @@ bool Angle3DMeasurement::mouseMoveEvent(OpenGLViewerWidget* viewer, QMouseEvent*
     if (viewer == 0 || event == 0)
         return false;
 
-    m_cursorPosition = event->pos();
+    m_cursorPosition = event->localPos();
     m_hasCursorPosition = true;
 
     MeasurementPoint point;
 
-    if (viewportPointToScene(viewer, event->pos(), point))
-        m_previewPoint = point;
+    if (viewportPointToScene(viewer, event->localPos(), point))
+        m_currentPoint = point;
     else
-        m_previewPoint = MeasurementPoint();
+        m_currentPoint = MeasurementPoint();
 
     viewer->update();
     return true;
@@ -172,59 +159,76 @@ void Angle3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& paint
 
     const QColor pointColor(255, 210, 40);
 
-    /// 等待第一个点。
-    if (m_state == MeasurementState::Idle || m_state == MeasurementState::Finished)
+    if (m_state == MeasurementState::Idle)
     {
         if (!m_hasCursorPosition)
             return;
 
-        QPoint currentPosition = m_cursorPosition.toPoint();
+        QPointF currentPosition = m_cursorPosition;
 
-        if (m_previewPoint.valid)
+        if (m_currentPoint.valid)
         {
-            QPoint projectedPosition;
+            QPointF projectedPosition;
 
-            if (viewer->worldPointAtScene(m_previewPoint.worldPosition, projectedPosition))
+            if (viewer->worldPointAtScene(m_currentPoint.worldPosition, projectedPosition))
                 currentPosition = projectedPosition;
         }
 
         painter.setPen(pointColor);
         painter.setBrush(pointColor);
-        painter.drawEllipse(currentPosition, 4, 4);
+        painter.drawEllipse(currentPosition, 4.0, 4.0);
 
-        const QString pointLabel = QStringLiteral("P1=%1").arg(pointText(m_previewPoint));
-        drawOverlayLabel(painter, QPointF(currentPosition) + QPointF(10.0, -30.0), pointLabel);
+        drawOverlayLabel(painter, currentPosition + QPointF(10.0, -30.0), QStringLiteral("P1=%1").arg(pointText(m_currentPoint)));
+        return;
+    }
 
+    if (m_state == MeasurementState::Finished)
+    {
+        if (!m_hasCursorPosition)
+            return;
+
+        QPointF currentPosition = m_cursorPosition;
+
+        if (m_currentPoint.valid)
+        {
+            QPointF projectedPosition;
+
+            if (viewer->worldPointAtScene(m_currentPoint.worldPosition, projectedPosition))
+                currentPosition = projectedPosition;
+        }
+
+        painter.setPen(pointColor);
+        painter.setBrush(pointColor);
+        painter.drawEllipse(currentPosition, 4.0, 4.0);
+
+        drawOverlayLabel(painter, currentPosition + QPointF(10.0, -30.0), QStringLiteral("P=%1").arg(pointText(m_currentPoint)));
         return;
     }
 
     if (m_state != MeasurementState::Collecting || !m_firstPoint.valid)
         return;
 
-    QPoint firstPosition;
+    QPointF firstPosition;
 
     if (!viewer->worldPointAtScene(m_firstPoint.worldPosition, firstPosition))
         return;
 
-    QPoint currentPosition = m_cursorPosition.toPoint();
+    QPointF currentPosition = m_cursorPosition;
 
-    if (m_previewPoint.valid)
+    if (m_currentPoint.valid)
     {
-        QPoint projectedPosition;
+        QPointF projectedPosition;
 
-        if (viewer->worldPointAtScene(m_previewPoint.worldPosition, projectedPosition))
+        if (viewer->worldPointAtScene(m_currentPoint.worldPosition, projectedPosition))
             currentPosition = projectedPosition;
     }
 
-    /// 第一个固定点。
     painter.setPen(pointColor);
     painter.setBrush(pointColor);
-    painter.drawEllipse(firstPosition, 4, 4);
+    painter.drawEllipse(firstPosition, 4.0, 4.0);
 
-    const QString firstLabel = QStringLiteral("P1=%1").arg(pointText(m_firstPoint));
-    drawOverlayLabel(painter, QPointF(firstPosition) + QPointF(10.0, -30.0), firstLabel);
+    drawOverlayLabel(painter, firstPosition + QPointF(10.0, -30.0), QStringLiteral("P1=%1").arg(pointText(m_firstPoint)));
 
-    /// 正在选择第二个点。
     if (m_pointCount == 1)
     {
         QPen previewPen(pointColor);
@@ -233,74 +237,61 @@ void Angle3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& paint
 
         painter.setPen(previewPen);
 
-        if (m_previewPoint.valid)
+        if (m_currentPoint.valid)
             painter.drawLine(firstPosition, currentPosition);
 
         painter.setBrush(pointColor);
-        painter.drawEllipse(currentPosition, 4, 4);
+        painter.drawEllipse(currentPosition, 4.0, 4.0);
 
-        const QString secondLabel = QStringLiteral("P2=%1").arg(pointText(m_previewPoint));
-        drawOverlayLabel(painter, QPointF(currentPosition) + QPointF(10.0, 10.0), secondLabel);
-
-        drawOverlayLabel(painter, QPointF(currentPosition) + QPointF(10.0, 40.0), QStringLiteral("A=?"));
-
+        drawOverlayLabel(painter, currentPosition + QPointF(10.0, 10.0), QStringLiteral("P2=%1").arg(pointText(m_currentPoint)));
+        drawOverlayLabel(painter, currentPosition + QPointF(10.0, 40.0), QStringLiteral("A=?"));
         return;
     }
 
-    /// 正在选择第三个点。
     if (m_pointCount != 2 || !m_vertexPoint.valid)
         return;
 
-    QPoint vertexPosition;
+    QPointF vertexPosition;
 
     if (!viewer->worldPointAtScene(m_vertexPoint.worldPosition, vertexPosition))
         return;
 
-    /// 第一条已经确定的边。
     QPen fixedPen(pointColor);
     fixedPen.setWidth(2);
 
     painter.setPen(fixedPen);
     painter.drawLine(vertexPosition, firstPosition);
 
-    /// 第二条预览边。
     QPen previewPen(pointColor);
     previewPen.setWidth(2);
     previewPen.setStyle(Qt::DashLine);
 
     painter.setPen(previewPen);
 
-    if (m_previewPoint.valid)
+    if (m_currentPoint.valid)
         painter.drawLine(vertexPosition, currentPosition);
 
     painter.setBrush(pointColor);
+    painter.drawEllipse(vertexPosition, 4.0, 4.0);
+    painter.drawEllipse(currentPosition, 4.0, 4.0);
 
-    painter.drawEllipse(vertexPosition, 4, 4);
-    painter.drawEllipse(currentPosition, 4, 4);
+    drawOverlayLabel(painter, vertexPosition + QPointF(10.0, 10.0), QStringLiteral("P2=%1").arg(pointText(m_vertexPoint)));
+    drawOverlayLabel(painter, currentPosition + QPointF(10.0, 10.0), QStringLiteral("P3=%1").arg(pointText(m_currentPoint)));
 
-    /// P2。
-    const QString vertexLabel = QStringLiteral("P2=%1").arg(pointText(m_vertexPoint));
-    drawOverlayLabel(painter, QPointF(vertexPosition) + QPointF(10.0, 10.0), vertexLabel);
-
-    /// P3。
-    const QString currentLabel = QStringLiteral("P3=%1").arg(pointText(m_previewPoint));
-    drawOverlayLabel(painter, QPointF(currentPosition) + QPointF(10.0, 10.0), currentLabel);
-
-    /// 角度。
     QString angleText = QStringLiteral("A=?");
 
-    if (m_previewPoint.valid)
+    if (m_currentPoint.valid)
     {
         double angle = 0.0;
 
-        if (angleValue(m_firstPoint.worldPosition, m_vertexPoint.worldPosition, m_previewPoint.worldPosition, angle))
-            angleText = QStringLiteral("A=%1°").arg(QString::number(angle, 'f', 2));
+        if (angleValue(m_firstPoint.worldPosition, m_vertexPoint.worldPosition, m_currentPoint.worldPosition, angle))
+            angleText = QStringLiteral("A=%1 %2").arg(QString::number(angle, 'f', 2)).arg(QChar(0x00B0));
     }
 
-    drawOverlayLabel(painter, QPointF(vertexPosition) + QPointF(10.0, -30.0), angleText);
+    drawOverlayLabel(painter, vertexPosition + QPointF(10.0, -30.0), angleText);
 }
 
-bool Angle3DMeasurement::viewportPointToScene(OpenGLViewerWidget* viewer, const QPoint& viewportPosition, MeasurementPoint& point) const
+bool Angle3DMeasurement::viewportPointToScene(OpenGLViewerWidget* viewer, const QPointF& viewportPosition, MeasurementPoint& point) const
 {
     if (viewer == 0)
         return false;
@@ -325,26 +316,34 @@ bool Angle3DMeasurement::ensureResultMaterial(OpenGLViewerWidget* viewer)
     if (m_resultMaterial != 0)
         return true;
 
-    m_resultMaterial = viewer->materialManager().createMaterial("MeasurementAngle3DMaterial");
+    Material* material = viewer->materialManager().createMaterial("MeasurementAngle3DMaterial");
 
-    if (m_resultMaterial == 0)
+    if (material == 0)
         return false;
 
-    if (!m_resultMaterial->setSurfaceMode(SurfaceMode::VertexColor))
+    if (!material->setSurfaceMode(SurfaceMode::VertexColor))
+    {
+        viewer->materialManager().remove(material->id());
         return false;
+    }
 
-    m_resultMaterial->setLightingEnabled(false);
+    material->setLightingEnabled(false);
+    m_resultMaterial = material;
 
     return true;
 }
 
-bool Angle3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const QVector3D& first, const QVector3D& vertex, const QVector3D& end)
+bool Angle3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const MeasurementPoint& first, const MeasurementPoint& vertex, const MeasurementPoint& end)
 {
-    if (viewer == 0)
+    if (viewer == 0 || !first.valid || !vertex.valid || !end.valid)
         return false;
 
     if (!ensureResultMaterial(viewer))
         return false;
+
+    const QVector3D& p1 = first.worldPosition;
+    const QVector3D& p2 = vertex.worldPosition;
+    const QVector3D& p3 = end.worldPosition;
 
     BufferGeometry* geometry = new BufferGeometry("MeasurementAngle3DResult", BufferUsage::Static, RenderType::Lines);
 
@@ -368,18 +367,13 @@ bool Angle3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const QVector3
 
     const std::vector<GLfloat> vertices =
     {
-        first.x(), first.y(), first.z(), color.x(), color.y(), color.z(),
-        vertex.x(), vertex.y(), vertex.z(), color.x(), color.y(), color.z(),
-
-        vertex.x(), vertex.y(), vertex.z(), color.x(), color.y(), color.z(),
-        end.x(), end.y(), end.z(), color.x(), color.y(), color.z()
+        p1.x(), p1.y(), p1.z(), color.x(), color.y(), color.z(),
+        p2.x(), p2.y(), p2.z(), color.x(), color.y(), color.z(),
+        p2.x(), p2.y(), p2.z(), color.x(), color.y(), color.z(),
+        p3.x(), p3.y(), p3.z(), color.x(), color.y(), color.z()
     };
 
-    const std::vector<GLuint> indices =
-    {
-        0, 1,
-        2, 3
-    };
+    const std::vector<GLuint> indices = { 0, 1, 2, 3 };
 
     geometry->setVertexData(vertices);
     geometry->setIndexData(indices);
@@ -412,6 +406,24 @@ bool Angle3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const QVector3
 
     part->setGeometry(geometry);
 
+    if (createPersistentLabel(viewer, item, p1, QPointF(5.0, -15.0), QStringLiteral("P1=%1").arg(pointText(first))) == 0)
+        qWarning() << "Angle3DMeasurement commitResult failed to create P1 Label.";
+
+    if (createPersistentLabel(viewer, item, p2, QPointF(5.0, 5.0), QStringLiteral("P2=%1").arg(pointText(vertex))) == 0)
+        qWarning() << "Angle3DMeasurement commitResult failed to create P2 Label.";
+
+    if (createPersistentLabel(viewer, item, p3, QPointF(5.0, 5.0), QStringLiteral("P3=%1").arg(pointText(end))) == 0)
+        qWarning() << "Angle3DMeasurement commitResult failed to create P3 Label.";
+
+    double angle = 0.0;
+    QString angleText = QStringLiteral("A=?");
+
+    if (angleValue(p1, p2, p3, angle))
+        angleText = QStringLiteral("A=%1 %2").arg(QString::number(angle, 'f', 2)).arg(QChar(0x00B0));
+
+    if (createPersistentLabel(viewer, item, p2, QPointF(5.0, -15.0), angleText) == 0)
+        qWarning() << "Angle3DMeasurement commitResult failed to create Angle Label.";
+
     return true;
 }
 
@@ -430,7 +442,6 @@ bool Angle3DMeasurement::angleValue(const QVector3D& first, const QVector3D& ver
     cosine = qBound(-1.0, cosine, 1.0);
 
     angle = std::acos(cosine) * 180.0 / 3.14159265358979323846;
-
     return true;
 }
 
@@ -439,8 +450,5 @@ QString Angle3DMeasurement::pointText(const MeasurementPoint& point) const
     if (!point.valid)
         return QStringLiteral("(?, ?, ?)");
 
-    return QStringLiteral("(%1, %2, %3)")
-        .arg(QString::number(point.worldPosition.x(), 'f', 3))
-        .arg(QString::number(point.worldPosition.y(), 'f', 3))
-        .arg(QString::number(point.worldPosition.z(), 'f', 3));
+    return QStringLiteral("(%1, %2, %3)").arg(QString::number(point.worldPosition.x(), 'f', 3)).arg(QString::number(point.worldPosition.y(), 'f', 3)).arg(QString::number(point.worldPosition.z(), 'f', 3));
 }

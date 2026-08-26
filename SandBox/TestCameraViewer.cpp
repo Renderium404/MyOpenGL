@@ -25,7 +25,7 @@
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Viewer/OpenGLViewerWidget.h"
-
+#include "MyOpenGL/Resource/Texture.h"
 #include "MyOpenGL/Viewer/Measurement/Length2DMeasurement.h"
 #include "MyOpenGL/Viewer/Measurement/Length3DMeasurement.h"
 #include "MyOpenGL/Viewer/Measurement/Angle2DMeasurement.h"
@@ -36,6 +36,9 @@ public:
     explicit CameraTestViewer(QWidget* parent = 0)
         : OpenGLViewerWidget(parent)
         , m_cubeGeometry(0)
+        , m_diceGeometry(0)
+        , m_diceTexture(0)
+        , m_diceMaterial(0)
         , m_vertexColorMaterial(0)
         , m_minorGridGeometry(0)
         , m_majorGridGeometry(0)
@@ -297,6 +300,9 @@ private:
                 qWarning() << "CameraTestViewer drawSceneBackground failed: Major Grid drawing failed.";
         }
     }
+    
+    
+    
     void drawViewportRuler(
         QPainter& painter,
         const QPointF& originPixel,
@@ -582,33 +588,36 @@ private:
         return true;
     }
     
-    void buildTestResources()
+void buildTestResources()
+{
+    if (!buildGridResources())
+        qWarning() << "CameraTestViewer buildTestResources failed: Grid resources failed.";
+
+    buildCubeGeometry();
+
+    /// Camera Test 只测试 Camera / Viewer 行为。
+    /// 使用无光照 VertexColor，避免测试结果受到场景 Light 影响。
+
+    m_vertexColorMaterial = materialManager().createMaterial("CameraTestVertexColor");
+
+    if (m_vertexColorMaterial == 0)
     {
-        if (!buildGridResources())
-            qWarning() << "CameraTestViewer buildTestResources failed: Grid resources failed.";
-
-        buildCubeGeometry();
-
-        /// Camera Test 只测试 Camera / Viewer 行为。
-        /// 使用无光照 VertexColor，避免测试结果受到场景 Light 影响。
-
-        m_vertexColorMaterial = materialManager().createMaterial("CameraTestVertexColor");
-
-        if (m_vertexColorMaterial == 0)
-        {
-            qWarning() << "CameraTestViewer buildTestResources failed: unable to create Material.";
-            return;
-        }
-
-        if (!m_vertexColorMaterial->setSurfaceMode(SurfaceMode::VertexColor))
-        {
-            qWarning() << "CameraTestViewer buildTestResources failed: unable to set VertexColor Material.";
-            return;
-        }
-
-        m_vertexColorMaterial->setLightingEnabled(false);
+        qWarning() << "CameraTestViewer buildTestResources failed: unable to create Material.";
+        return;
     }
 
+    if (!m_vertexColorMaterial->setSurfaceMode(SurfaceMode::VertexColor))
+    {
+        qWarning() << "CameraTestViewer buildTestResources failed: unable to set VertexColor Material.";
+        return;
+    }
+
+    m_vertexColorMaterial->setLightingEnabled(false);
+
+    /// Dice Texture Test
+    if (!buildDiceResources())
+        qWarning() << "CameraTestViewer buildTestResources failed: Dice resources failed.";
+}
     void buildTestItems()
     {
         if (m_cubeGeometry == 0 || m_vertexColorMaterial == 0)
@@ -699,6 +708,34 @@ private:
                 part->setLocalBounds(unitBounds);
             }
         }
+    
+        if (m_diceGeometry != 0 && m_diceMaterial != 0)
+        {
+            RenderItem* dice = itemManager().createItem("Dice");
+
+            if (dice != 0)
+            {
+                dice->setMaterial(m_diceMaterial);
+
+                dice->transform().setPosition(QVector3D(0.0f, 0.5f, 4.0f));
+                dice->transform().setScale(QVector3D(2.0f, 2.0f, 2.0f));
+
+                dice->setDisplayMode(DisplayMode::ShadedWithEdges);
+                dice->setEdgeColor(QVector4D(0.08f, 0.08f, 0.08f, 1.0f));
+
+                RenderPart* part = dice->createPart();
+
+                if (part != 0)
+                {
+                    part->setGeometry(m_diceGeometry);
+                    part->setLocalBounds(
+                        AxisAlignedBoundingBox(
+                            QVector3D(-0.5f, -0.5f, -0.5f),
+                            QVector3D(0.5f, 0.5f, 0.5f)));
+                }
+            }
+        }
+    
     }
 
     void buildCubeGeometry()
@@ -784,6 +821,253 @@ private:
             m_cubeGeometry = 0;
         }
     }
+    bool buildDiceGeometry()
+{
+    m_diceGeometry = new BufferGeometry("DiceGeometry", BufferUsage::Static, RenderType::Triangles);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = 0;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute texCoord;
+    texCoord.location = GeometryAttribute::TexCoord;
+    texCoord.componentCount = 2;
+    texCoord.valueOffset = 3;
+    attributes.push_back(texCoord);
+
+    m_diceGeometry->setVertexLayout(5, attributes);
+
+    std::vector<GLfloat> vertices;
+    std::vector<GLuint> indices;
+
+    auto addFace = [&vertices, &indices](
+        const QVector3D& p0,
+        const QVector3D& p1,
+        const QVector3D& p2,
+        const QVector3D& p3,
+        int number)
+    {
+        const int column = (number - 1) % 3;
+        const int row = (number - 1) / 3;
+
+        const float u0 = static_cast<float>(column) / 3.0f;
+        const float u1 = static_cast<float>(column + 1) / 3.0f;
+
+        const float v0 = static_cast<float>(row) / 2.0f;
+        const float v1 = static_cast<float>(row + 1) / 2.0f;
+
+        const GLuint baseIndex = static_cast<GLuint>(vertices.size() / 5);
+
+        auto addVertex = [&vertices](const QVector3D& position, float u, float v)
+        {
+            vertices.push_back(position.x());
+            vertices.push_back(position.y());
+            vertices.push_back(position.z());
+            vertices.push_back(u);
+            vertices.push_back(v);
+        };
+
+        addVertex(p0, u0, v1);
+        addVertex(p1, u1, v1);
+        addVertex(p2, u1, v0);
+        addVertex(p3, u0, v0);
+
+        indices.push_back(baseIndex + 0);
+        indices.push_back(baseIndex + 1);
+        indices.push_back(baseIndex + 2);
+
+        indices.push_back(baseIndex + 0);
+        indices.push_back(baseIndex + 2);
+        indices.push_back(baseIndex + 3);
+    };
+
+    const float h = 0.5f;
+
+    // 正常骰子的相对面之和为 7。
+    // +X = 1，-X = 6
+    addFace(
+        QVector3D( h, -h,  h),
+        QVector3D( h, -h, -h),
+        QVector3D( h,  h, -h),
+        QVector3D( h,  h,  h),
+        1);
+
+    addFace(
+        QVector3D(-h, -h, -h),
+        QVector3D(-h, -h,  h),
+        QVector3D(-h,  h,  h),
+        QVector3D(-h,  h, -h),
+        6);
+
+    // +Y = 2，-Y = 5
+    addFace(
+        QVector3D(-h,  h,  h),
+        QVector3D( h,  h,  h),
+        QVector3D( h,  h, -h),
+        QVector3D(-h,  h, -h),
+        2);
+
+    addFace(
+        QVector3D(-h, -h, -h),
+        QVector3D( h, -h, -h),
+        QVector3D( h, -h,  h),
+        QVector3D(-h, -h,  h),
+        5);
+
+    // +Z = 3，-Z = 4
+    addFace(
+        QVector3D(-h, -h,  h),
+        QVector3D( h, -h,  h),
+        QVector3D( h,  h,  h),
+        QVector3D(-h,  h,  h),
+        3);
+
+    addFace(
+        QVector3D( h, -h, -h),
+        QVector3D(-h, -h, -h),
+        QVector3D(-h,  h, -h),
+        QVector3D( h,  h, -h),
+        4);
+
+    m_diceGeometry->setVertexData(vertices);
+    m_diceGeometry->setIndexData(indices);
+
+    if (resourceManager().adopt(m_diceGeometry) == InvalidResourceId)
+    {
+        delete m_diceGeometry;
+        m_diceGeometry = 0;
+        return false;
+    }
+
+    return true;
+}
+    QImage createDiceTextureImage() const
+{
+    const int cellSize = 128;
+    const int columnCount = 3;
+    const int rowCount = 2;
+
+    QImage image(cellSize * columnCount, cellSize * rowCount, QImage::Format_RGBA8888);
+    image.fill(Qt::transparent);
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    for (int number = 1; number <= 6; ++number)
+    {
+        const int column = (number - 1) % columnCount;
+        const int row = (number - 1) / columnCount;
+
+        const QRectF cell(column * cellSize, row * cellSize, cellSize, cellSize);
+
+        painter.setPen(QPen(QColor(80, 80, 80), 2.0));
+        painter.setBrush(QColor(245, 245, 240));
+        painter.drawRoundedRect(cell.adjusted(4.0, 4.0, -4.0, -4.0), 14.0, 14.0);
+
+        const QPointF topLeft(cell.left() + cellSize * 0.28, cell.top() + cellSize * 0.28);
+        const QPointF topRight(cell.left() + cellSize * 0.72, cell.top() + cellSize * 0.28);
+        const QPointF middleLeft(cell.left() + cellSize * 0.28, cell.top() + cellSize * 0.50);
+        const QPointF center(cell.left() + cellSize * 0.50, cell.top() + cellSize * 0.50);
+        const QPointF middleRight(cell.left() + cellSize * 0.72, cell.top() + cellSize * 0.50);
+        const QPointF bottomLeft(cell.left() + cellSize * 0.28, cell.top() + cellSize * 0.72);
+        const QPointF bottomRight(cell.left() + cellSize * 0.72, cell.top() + cellSize * 0.72);
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(30, 30, 30));
+
+        const qreal radius = 9.0;
+
+        auto drawPoint = [&painter, radius](const QPointF& point)
+        {
+            painter.drawEllipse(point, radius, radius);
+        };
+
+        switch (number)
+        {
+        case 1:
+            drawPoint(center);
+            break;
+
+        case 2:
+            drawPoint(topLeft);
+            drawPoint(bottomRight);
+            break;
+
+        case 3:
+            drawPoint(topLeft);
+            drawPoint(center);
+            drawPoint(bottomRight);
+            break;
+
+        case 4:
+            drawPoint(topLeft);
+            drawPoint(topRight);
+            drawPoint(bottomLeft);
+            drawPoint(bottomRight);
+            break;
+
+        case 5:
+            drawPoint(topLeft);
+            drawPoint(topRight);
+            drawPoint(center);
+            drawPoint(bottomLeft);
+            drawPoint(bottomRight);
+            break;
+
+        case 6:
+            drawPoint(topLeft);
+            drawPoint(middleLeft);
+            drawPoint(bottomLeft);
+            drawPoint(topRight);
+            drawPoint(middleRight);
+            drawPoint(bottomRight);
+            break;
+        }
+    }
+
+    painter.end();
+
+    return image;
+}
+    bool buildDiceResources()
+{
+    if (!buildDiceGeometry())
+        return false;
+
+    m_diceTexture = new Texture("DiceTexture");
+
+    if (!m_diceTexture->setImage(createDiceTextureImage()))
+    {
+        delete m_diceTexture;
+        m_diceTexture = 0;
+        return false;
+    }
+
+    if (resourceManager().adopt(m_diceTexture) == InvalidResourceId)
+    {
+        delete m_diceTexture;
+        m_diceTexture = 0;
+        return false;
+    }
+
+    m_diceMaterial = materialManager().createMaterial("DiceMaterial");
+
+    if (m_diceMaterial == 0)
+        return false;
+
+    if (!m_diceMaterial->setSurfaceMode(SurfaceMode::Texture))
+        return false;
+
+    m_diceMaterial->setLightingEnabled(false);
+    m_diceMaterial->setTexture(m_diceTexture);
+    m_diceMaterial->setColor(QVector4D(1.0f, 1.0f, 1.0f, 1.0f));
+
+    return true;
+}
     double positiveModulo(double value, double divisor) const
     {
         if (divisor <= 0.0)
@@ -797,6 +1081,9 @@ private:
         return result;
     }
 private:
+    BufferGeometry* m_diceGeometry;
+    Texture* m_diceTexture;
+    Material* m_diceMaterial;
     BufferGeometry* m_cubeGeometry;
     Material* m_vertexColorMaterial;
 

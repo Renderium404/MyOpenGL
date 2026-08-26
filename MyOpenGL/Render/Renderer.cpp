@@ -4,7 +4,7 @@
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Render/MyOpenGLContext.h"
 #include "MyOpenGL/Resource/Geometry.h"
-
+#include "MyOpenGL/Resource/Texture.h"
 #include <QDebug>
 #include <QMatrix3x3>
 #include <QVector3D>
@@ -19,6 +19,11 @@ Renderer::Renderer()
     , m_solidViewLocation(-1)
     , m_solidProjectionLocation(-1)
     , m_solidColorLocation(-1)
+    , m_textureModelLocation(-1)
+    , m_textureViewLocation(-1)
+    , m_textureProjectionLocation(-1)
+    , m_textureSamplerLocation(-1)
+    , m_textureColorLocation(-1)
     , m_litModelLocation(-1)
     , m_litViewLocation(-1)
     , m_litProjectionLocation(-1)
@@ -211,7 +216,30 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "\n"
         "    FragColor = vec4(result, surfaceColor.a);\n"
         "}\n";
+    const char* textureVertexShader =
+        "#version 330 core\n"
+        "layout(location = 0) in vec3 aPosition;\n"
+        "layout(location = 2) in vec2 aTexCoord;\n"
+        "uniform mat4 model;\n"
+        "uniform mat4 view;\n"
+        "uniform mat4 projection;\n"
+        "out vec2 texCoord;\n"
+        "void main()\n"
+        "{\n"
+        "    gl_Position = projection * view * model * vec4(aPosition, 1.0);\n"
+        "    texCoord = aTexCoord;\n"
+        "}\n";
 
+    const char* textureFragmentShader =
+        "#version 330 core\n"
+        "in vec2 texCoord;\n"
+        "uniform sampler2D texture0;\n"
+        "uniform vec4 color;\n"
+        "out vec4 FragColor;\n"
+        "void main()\n"
+        "{\n"
+        "    FragColor = texture(texture0, texCoord) * color;\n"
+        "}\n";
     if (!m_vertexColorProgram.initialize(gl, vertexColorVertexShader, vertexColorFragmentShader))
         return false;
 
@@ -221,8 +249,16 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         return false;
     }
 
+    if (!m_textureProgram.initialize(gl, textureVertexShader, textureFragmentShader))
+    {
+        m_solidColorProgram.release(gl);
+        m_vertexColorProgram.release(gl);
+        return false;
+    }
+
     if (!m_litProgram.initialize(gl, litVertexShader, litFragmentShader))
     {
+        m_textureProgram.release(gl);
         m_solidColorProgram.release(gl);
         m_vertexColorProgram.release(gl);
         return false;
@@ -236,6 +272,12 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
     m_solidViewLocation = m_solidColorProgram.uniformLocation(gl, "view");
     m_solidProjectionLocation = m_solidColorProgram.uniformLocation(gl, "projection");
     m_solidColorLocation = m_solidColorProgram.uniformLocation(gl, "color");
+
+    m_textureModelLocation = m_textureProgram.uniformLocation(gl, "model");
+    m_textureViewLocation = m_textureProgram.uniformLocation(gl, "view");
+    m_textureProjectionLocation = m_textureProgram.uniformLocation(gl, "projection");
+    m_textureSamplerLocation = m_textureProgram.uniformLocation(gl, "texture0");
+    m_textureColorLocation = m_textureProgram.uniformLocation(gl, "color");
 
     m_litModelLocation = m_litProgram.uniformLocation(gl, "model");
     m_litViewLocation = m_litProgram.uniformLocation(gl, "view");
@@ -259,6 +301,7 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
 
     if (m_colorModelLocation < 0 || m_colorViewLocation < 0 || m_colorProjectionLocation < 0 ||
         m_solidModelLocation < 0 || m_solidViewLocation < 0 || m_solidProjectionLocation < 0 || m_solidColorLocation < 0 ||
+        m_textureModelLocation < 0 || m_textureViewLocation < 0 || m_textureProjectionLocation < 0 || m_textureSamplerLocation < 0 || m_textureColorLocation < 0 ||
         m_litModelLocation < 0 || m_litViewLocation < 0 || m_litProjectionLocation < 0 || m_litNormalLocation < 0 ||
         m_litBaseColorLocation < 0 || m_litUseVertexColorLocation < 0 || m_litAmbientLightLocation < 0 ||
         m_litLightCountLocation < 0 || m_litLightTypeLocation < 0 ||
@@ -270,6 +313,7 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         qWarning() << "Renderer initialize failed: required Shader Uniform was not found.";
 
         m_litProgram.release(gl);
+        m_textureProgram.release(gl);
         m_solidColorProgram.release(gl);
         m_vertexColorProgram.release(gl);
 
@@ -297,6 +341,7 @@ void Renderer::release()
 
     m_vertexColorProgram.release(gl);
     m_solidColorProgram.release(gl);
+    m_textureProgram.release(gl);
     m_litProgram.release(gl);
 
     m_openGLContext = 0;
@@ -322,41 +367,36 @@ const QVector4D& Renderer::clearColor() const
 
 bool Renderer::beginFrame(const RenderContext& context)
 {
-    if (!m_initialized)
-    {
+    if (!m_initialized){
         qWarning() << "Renderer beginFrame failed: renderer is not initialized.";
         return false;
     }
-
-    if (m_frameActive)
-    {
+    if (m_frameActive){
         qWarning() << "Renderer beginFrame failed: a frame is already active.";
         return false;
     }
-
-    if (!context.isValid())
-    {
+    if (!context.isValid()){
         qWarning() << "Renderer beginFrame failed: RenderContext is invalid.";
         return false;
     }
 
     QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
-
     if (gl == 0)
         return false;
-
     m_renderContext = context;
 
     gl->glViewport(0, 0, context.viewportWidth, context.viewportHeight);
 
-    gl->glEnable(GL_DEPTH_TEST);
-    gl->glDepthFunc(GL_LESS);
-    gl->glDepthMask(GL_TRUE);
+    gl->glEnable(GL_DEPTH_TEST); // 开启深度测试。
+    gl->glDepthFunc(GL_LESS);    // 只有当前 Fragment 深度值小于 Depth Buffer 中已有值时，才通过深度测试。
+    gl->glDepthMask(GL_TRUE);    // 允许通过深度测试的 Fragment 写入 Depth Buffer。
 
-    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    gl->glDisable(GL_BLEND);     // 默认关闭颜色混合，由具体 RenderState 决定是否开启。
 
-    gl->glClearColor(m_clearColor.x(), m_clearColor.y(), m_clearColor.z(), m_clearColor.w());
-    gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // 默认使用填充模式绘制三角形。
+
+    gl->glClearColor(m_clearColor.x(), m_clearColor.y(), m_clearColor.z(), m_clearColor.w());// 设置当前 Frame 的背景色。
+    gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                                  // 清除当前 Frame 的颜色缓冲和深度缓冲。
 
     m_frameActive = true;
 
@@ -382,11 +422,12 @@ void Renderer::endFrame()
     gl->glDepthMask(GL_TRUE);
     gl->glEnable(GL_DEPTH_TEST);
 
+    gl->glDisable(GL_BLEND);
+
     ShaderProgram::unbind(gl);
 
     m_frameActive = false;
 }
-
 /// Geometry Draw
 
 bool Renderer::clearDepth(const RenderViewport& viewport)
@@ -432,7 +473,7 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
         return false;
     }
 
-    // Material 禁用光照时完全绕过 Light Pipeline。
+    /// 无光照材质。
     if (!material->lightingEnabled())
     {
         switch (material->surfaceMode())
@@ -442,16 +483,100 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
 
         case SurfaceMode::VertexColor:
             return drawVertexColorGeometry(geometry, state);
+
+        case SurfaceMode::Texture:
+            return drawTextureGeometry(geometry, material, state);
         }
 
-        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:"
-                   << material->name();
+        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:" << material->name();
+        return false;
+    }
+
+    /// 第一版不支持纹理参与光照。
+    if (material->surfaceMode() == SurfaceMode::Texture)
+    {
+        qWarning() << "Renderer drawGeometry failed: lit texture material is not supported:" << material->name();
         return false;
     }
 
     return drawLitGeometry(geometry, material, state, lights);
 }
+/// Texture
 
+bool Renderer::drawTextureGeometry(const Geometry* geometry, const Material* material, const RenderState& state)
+{
+    if (geometry == 0 || material == 0)
+        return false;
+
+    if (!geometry->isInitialized() || geometry->vao() == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Geometry GPU resource is not initialized:" << geometry->name();
+        return false;
+    }
+
+    if (geometry->indexCount() <= 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Geometry contains no indices:" << geometry->name();
+        return false;
+    }
+
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3) || !geometry->hasAttribute(GeometryAttribute::TexCoord, 2))
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: position + texcoord layout is required:" << geometry->name();
+        return false;
+    }
+
+    const Texture* texture = material->texture();
+
+    if (texture == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Material texture is null:" << material->name();
+        return false;
+    }
+
+    if (!texture->isInitialized() || texture->textureId() == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Texture GPU resource is not initialized:" << texture->name();
+        return false;
+    }
+
+    QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
+
+    if (gl == 0)
+        return false;
+
+    if (!geometry->prepareDrawGL(gl))
+        return false;
+
+    if (!applyRenderState(state))
+    {
+        geometry->finishDrawGL(gl);
+        return false;
+    }
+
+    const QVector4D& color = material->color();
+
+    m_textureProgram.bind(gl);
+
+    gl->glUniformMatrix4fv(m_textureModelLocation, 1, GL_FALSE, state.model.constData());
+    gl->glUniformMatrix4fv(m_textureViewLocation, 1, GL_FALSE, state.view.constData());
+    gl->glUniformMatrix4fv(m_textureProjectionLocation, 1, GL_FALSE, state.projection.constData());
+    gl->glUniform4f(m_textureColorLocation, color.x(), color.y(), color.z(), color.w());
+
+    gl->glActiveTexture(GL_TEXTURE0);
+    gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
+    gl->glUniform1i(m_textureSamplerLocation, 0);
+
+    gl->glBindVertexArray(geometry->vao());
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    gl->glBindVertexArray(0);
+
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+
+    geometry->finishDrawGL(gl);
+
+    return true;
+}
 /// Color
 
 bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& color, const RenderState& state)
@@ -883,7 +1008,15 @@ bool Renderer::applyRenderState(const RenderState& state)
     // 当前基础 Renderer 的普通 Geometry Draw 固定使用 GL_LESS。
     // Wire Overlay 会在自身 Draw Scope 内临时切换为 GL_LEQUAL。
     gl->glDepthFunc(GL_LESS);
-
+    if (state.blendEnabled)
+    {
+        gl->glEnable(GL_BLEND);
+        gl->glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    }
+    else
+    {
+        gl->glDisable(GL_BLEND);
+    }
     return true;
 }
 
