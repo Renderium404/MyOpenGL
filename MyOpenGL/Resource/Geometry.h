@@ -22,10 +22,10 @@ enum class BufferUsage
 /// 外部 Geometry Adapter 必须将外部数据语义映射到这些固定 Location。
 namespace GeometryAttribute
 {
-const GLuint Position = 0; // Vertex Position。
-const GLuint Normal = 1;   // Vertex Normal。
-const GLuint TexCoord = 2; // Vertex Texture Coordinate。
-const GLuint Color = 3;    // Vertex Color。
+    const GLuint Position = 0; // Vertex Position。
+    const GLuint Normal = 1;   // Vertex Normal。
+    const GLuint TexCoord = 2; // Vertex Texture Coordinate。
+    const GLuint Color = 3;    // Vertex Color。
 }
 
 /// 获取 Geometry 调试名称。

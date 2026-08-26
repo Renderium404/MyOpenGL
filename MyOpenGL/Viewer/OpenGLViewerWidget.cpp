@@ -842,90 +842,114 @@ bool OpenGLViewerWidget::drawItemLabels(const RenderItem* item, const RenderCont
 {
     if (item == 0)
         return false;
+
     if (!item->isVisible() || item->labelCount() == 0)
         return true;
+
     if (!context.isValid())
         return false;
 
-    /// Label 不参与任何场景光照。
     const std::vector<const Light*> noLights;
-    /// Item Local -> World。
-    const QMatrix4x4 itemModel = item->transform().matrix();
+
+    const QVector3D cameraForward = context.cameraForward.normalized();
+    const QVector3D cameraUp = context.cameraUp.normalized();
+    const QVector3D cameraRight = QVector3D::crossProduct(cameraForward, cameraUp).normalized();
+    const QVector3D sceneUp = QVector3D::crossProduct(cameraRight, cameraForward).normalized();
+
+    if (cameraRight.lengthSquared() <= 1.0e-12f || sceneUp.lengthSquared() <= 1.0e-12f)
+        return false;
+
     for (int labelIndex = 0; labelIndex < item->labelCount(); ++labelIndex)
     {
         const RenderLabel* label = item->labelAt(labelIndex);
-        if (label == 0)
+
+        if (label == 0 || !label->isRenderable())
             continue;
-        if (!label->isRenderable())
-            continue;
+
         const Geometry* geometry = label->geometry();
         const Material* material = label->material();
+
         if (geometry == 0 || material == 0)
             continue;
-        const QVector3D worldPosition =itemModel.map(label->anchorPosition());
-        const QVector4D clip =context.projection *context.view *QVector4D(worldPosition, 1.0f);
-        /// Label 位于 Camera 后方或投影无效。
-        if (clip.w() <= 1.0e-8f)
+
+        const QVector2D& sceneAnchor = label->anchorSence();
+        const QVector3D worldAnchor = label->anchorWorld() + cameraRight * sceneAnchor.x() + sceneUp * sceneAnchor.y();
+
+        const QVector4D anchorClip = context.projection * context.view * QVector4D(worldAnchor, 1.0f);
+
+        if (anchorClip.w() <= 1.0e-8f)
             continue;
-        /// ------------------------------------------------
-        /// Clip -> NDC
-        /// ------------------------------------------------
-        const float ndcX = clip.x() / clip.w();
-        const float ndcY = clip.y() / clip.w();
-        const float ndcZ = clip.z() / clip.w();
-        /// 锚点不在当前 View Frustum 中时不绘制 Label。
-        if (ndcX < -1.0f || ndcX > 1.0f ||
-            ndcY < -1.0f || ndcY > 1.0f ||
-            ndcZ < -1.0f || ndcZ > 1.0f)
-        {
+
+        const float anchorNdcX = anchorClip.x() / anchorClip.w();
+        const float anchorNdcY = anchorClip.y() / anchorClip.w();
+        const float anchorNdcZ = anchorClip.z() / anchorClip.w();
+
+        if (anchorNdcZ < -1.0f || anchorNdcZ > 1.0f)
             continue;
-        }
-        float pixelX =(ndcX * 0.5f + 0.5f) *static_cast<float>(context.viewportWidth);
-        float pixelY =(ndcY * 0.5f + 0.5f) *static_cast<float>(context.viewportHeight);
+
+        float pixelX = (anchorNdcX * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+        float pixelY = (anchorNdcY * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+
         pixelX += static_cast<float>(label->pixelOffset().x());
         pixelY -= static_cast<float>(label->pixelOffset().y());
-        /// Raster Label 对齐最终屏幕 Pixel。
-        ///
-        /// 避免 Texture Quad 落在半 Pixel / 亚 Pixel 位置，
-        /// 造成字体重新采样后发虚。
-        pixelX = static_cast<float>(qRound(pixelX));
-        pixelY = static_cast<float>(qRound(pixelY));
-        /// ------------------------------------------------
-        /// Screen RenderState
-        /// ------------------------------------------------
+
         RenderState state;
         state.model.setToIdentity();
-        state.model.translate(pixelX, pixelY, 0.0f);
         state.view.setToIdentity();
         state.projection.setToIdentity();
-        state.projection.ortho(0.0f,static_cast<float>(context.viewportWidth),0.0f,static_cast<float>(context.viewportHeight),-1.0f,1.0f);
-        state.viewport = RenderViewport(0,0,context.viewportWidth,context.viewportHeight);
-
-        /// Label 始终显示在当前 ItemManager Geometry 前方。
+        state.projection.ortho(0.0f, static_cast<float>(context.viewportWidth), 0.0f, static_cast<float>(context.viewportHeight), -1.0f, 1.0f);
+        state.viewport = RenderViewport(0, 0, context.viewportWidth, context.viewportHeight);
         state.depthTestEnabled = false;
         state.depthWriteEnabled = false;
-        /// Texture Label 使用 Alpha。
-        state.blendEnabled = true;
-        /// ------------------------------------------------
-        /// Draw
-        /// ------------------------------------------------
-        if (!m_renderer.drawGeometry(
-                geometry,
-                material,
-                state,
-                noLights))
-        {
-            qWarning() << "OpenGLViewerWidget drawItemLabels failed:"
-                       << "Item=" << item->name()
-                       << "LabelId=" << static_cast<qulonglong>(label->id());
 
+        if (material->surfaceMode() == SurfaceMode::Texture)
+        {
+            /// Texture Label 的 Geometry 使用 Pixel 单位。
+            if (anchorNdcX < -1.0f || anchorNdcX > 1.0f || anchorNdcY < -1.0f || anchorNdcY > 1.0f)
+                continue;
+
+            pixelX = static_cast<float>(qRound(pixelX));
+            pixelY = static_cast<float>(qRound(pixelY));
+
+            state.model.translate(pixelX, pixelY, 0.0f);
+            state.blendEnabled = true;
+        }
+        else
+        {
+            /// Geometry Label 的 XY 使用标尺尺度，需要转换成当前屏幕 Pixel 基向量。
+            const QVector3D worldXAxis = worldAnchor + cameraRight;
+            const QVector3D worldYAxis = worldAnchor + sceneUp;
+
+            const QVector4D xClip = context.projection * context.view * QVector4D(worldXAxis, 1.0f);
+            const QVector4D yClip = context.projection * context.view * QVector4D(worldYAxis, 1.0f);
+
+            if (xClip.w() <= 1.0e-8f || yClip.w() <= 1.0e-8f)
+                continue;
+
+            const float xPixelX = (xClip.x() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+            const float xPixelY = (xClip.y() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+            const float yPixelX = (yClip.x() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+            const float yPixelY = (yClip.y() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+
+            const QVector2D pixelXAxis(xPixelX - pixelX, xPixelY - pixelY);
+            const QVector2D pixelYAxis(yPixelX - pixelX, yPixelY - pixelY);
+
+            state.model.setColumn(0, QVector4D(pixelXAxis.x(), pixelXAxis.y(), 0.0f, 0.0f));
+            state.model.setColumn(1, QVector4D(pixelYAxis.x(), pixelYAxis.y(), 0.0f, 0.0f));
+            state.model.setColumn(2, QVector4D(0.0f, 0.0f, 1.0f, 0.0f));
+            state.model.setColumn(3, QVector4D(pixelX, pixelY, 0.0f, 1.0f));
+            state.blendEnabled = false;
+        }
+
+        if (!m_renderer.drawGeometry(geometry, material, state, noLights))
+        {
+            qWarning() << "OpenGLViewerWidget drawItemLabels failed:" << "Item=" << item->name() << "LabelId=" << static_cast<qulonglong>(label->id());
             return false;
         }
     }
 
     return true;
 }
-
 
 
 /// Camera

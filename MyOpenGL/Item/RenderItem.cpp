@@ -1,19 +1,29 @@
 #include "RenderItem.h"
 
+#include <QColor>
 #include <QDebug>
+#include <QFont>
+#include <QFontMetrics>
+#include <QImage>
+#include <QPainter>
 #include <QVector4D>
-#include <cmath>
-#include <cfloat>
+
 #include <algorithm>
 #include <cfloat>
+#include <cmath>
 #include <set>
+#include <vector>
+
+#include "MyOpenGL/Core/ResourceManager.h"
+#include "MyOpenGL/Material/Material.h"
+#include "MyOpenGL/Material/MaterialManager.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
+#include "MyOpenGL/Resource/Texture.h"
+
 namespace
 {
 
-bool intersectRayTriangle(const QVector3D& rayOrigin, const QVector3D& rayDirection,
-                          const QVector3D& vertex0, const QVector3D& vertex1, const QVector3D& vertex2,
-                          float& distance)
+bool intersectRayTriangle(const QVector3D& rayOrigin, const QVector3D& rayDirection, const QVector3D& vertex0, const QVector3D& vertex1, const QVector3D& vertex2, float& distance)
 {
     const float epsilon = 1.0e-8f;
 
@@ -23,7 +33,6 @@ bool intersectRayTriangle(const QVector3D& rayOrigin, const QVector3D& rayDirect
     const QVector3D p = QVector3D::crossProduct(rayDirection, edge2);
     const float determinant = QVector3D::dotProduct(edge1, p);
 
-    // 双面命中，不进行 Back Face Culling。
     if (std::fabs(determinant) <= epsilon)
         return false;
 
@@ -55,8 +64,6 @@ QVector3D attributePosition(const AttributeValue& value)
 }
 
 }
-
-
 
 RenderItemRayHit::RenderItemRayHit()
     : partId(InvalidRenderPartId)
@@ -111,8 +118,7 @@ RenderPart* RenderItem::createPart()
 
     if (id == InvalidRenderPartId)
     {
-        qWarning() << "RenderItem createPart failed: unable to allocate RenderPartId:"
-                   << "Item=" << m_name;
+        qWarning() << "RenderItem createPart failed: unable to allocate RenderPartId:" << "Item=" << m_name;
         return 0;
     }
 
@@ -136,9 +142,7 @@ bool RenderItem::removePart(RenderPartId id)
 
     if (vectorIterator == m_parts.end())
     {
-        qWarning() << "RenderItem removePart failed: internal Part collection is inconsistent:"
-                   << "Item=" << m_name
-                   << "PartId=" << static_cast<qulonglong>(id);
+        qWarning() << "RenderItem removePart failed: internal Part collection is inconsistent:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(id);
         return false;
     }
 
@@ -198,6 +202,7 @@ const RenderPart* RenderItem::part(RenderPartId id) const
     std::map<RenderPartId, RenderPart*>::const_iterator it = m_partsById.find(id);
     return it != m_partsById.end() ? it->second : 0;
 }
+
 /// Label 管理
 
 RenderLabel* RenderItem::createLabel()
@@ -206,9 +211,7 @@ RenderLabel* RenderItem::createLabel()
 
     if (id == InvalidRenderLabelId)
     {
-        qWarning() << "RenderItem createLabel failed: unable to allocate RenderLabelId:"
-                   << "Item=" << m_name;
-
+        qWarning() << "RenderItem createLabel failed: unable to allocate RenderLabelId:" << "Item=" << m_name;
         return 0;
     }
 
@@ -220,6 +223,141 @@ RenderLabel* RenderItem::createLabel()
     return result;
 }
 
+RenderLabel* RenderItem::createTextLabel(ResourceManager& resourceManager, MaterialManager& materialManager, const QString& text, int textPixelSize)
+{
+    if (text.isEmpty() || textPixelSize <= 0)
+        return 0;
+
+    RenderLabel* label = createLabel();
+
+    if (label == 0)
+        return 0;
+
+    const RenderLabelId labelId = label->id();
+
+    QFont font;
+    font.setPixelSize(textPixelSize);
+
+    const QFontMetrics metrics(font);
+
+    const int horizontalPadding = 4; // 文本左右背景留白，单位 Pixel。
+    const int verticalPadding = 2;   // 文本上下背景留白，单位 Pixel。
+
+    const int textWidth = metrics.width(text);
+    const int textHeight = metrics.height();
+    const int imageWidth = textWidth + horizontalPadding * 2;
+    const int imageHeight = textHeight + verticalPadding * 2;
+
+    if (imageWidth <= 0 || imageHeight <= 0)
+    {
+        removeLabel(labelId);
+        return 0;
+    }
+
+    QImage image(imageWidth, imageHeight, QImage::Format_RGBA8888);
+    image.fill(Qt::transparent);
+
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::TextAntialiasing, true);
+    painter.fillRect(image.rect(), QColor(0, 0, 0, 160)); // 160 Alpha 用于半透明标签背景。
+    painter.setFont(font);
+    painter.setPen(QColor(255, 230, 120));
+    painter.drawText(QRect(horizontalPadding, verticalPadding, textWidth, textHeight), Qt::AlignLeft | Qt::AlignVCenter, text);
+    painter.end();
+
+    const QString resourceSuffix = QStringLiteral("%1_%2").arg(static_cast<qulonglong>(m_id)).arg(static_cast<qulonglong>(labelId));
+
+    Texture* texture = new Texture(QStringLiteral("RenderLabelTextTexture_%1").arg(resourceSuffix));
+
+    if (!texture->setImage(image))
+    {
+        delete texture;
+        removeLabel(labelId);
+        return 0;
+    }
+
+    if (resourceManager.adopt(texture) == InvalidResourceId)
+    {
+        delete texture;
+        removeLabel(labelId);
+        return 0;
+    }
+
+    BufferGeometry* geometry = new BufferGeometry(QStringLiteral("RenderLabelTextGeometry_%1").arg(resourceSuffix), BufferUsage::Static, RenderType::Triangles);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = 0;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute texCoord;
+    texCoord.location = GeometryAttribute::TexCoord;
+    texCoord.componentCount = 2;
+    texCoord.valueOffset = 3;
+    attributes.push_back(texCoord);
+
+    geometry->setVertexLayout(5, attributes);
+
+    const float width = static_cast<float>(imageWidth);
+    const float height = static_cast<float>(imageHeight);
+
+    const std::vector<GLfloat> vertices =
+    {
+        0.0f,  0.0f,   0.0f, 0.0f, 1.0f,
+        width, 0.0f,   0.0f, 1.0f, 1.0f,
+        width, height, 0.0f, 1.0f, 0.0f,
+        0.0f,  height, 0.0f, 0.0f, 0.0f
+    };
+
+    const std::vector<GLuint> indices =
+    {
+        0, 1, 2,
+        0, 2, 3
+    };
+
+    geometry->setVertexData(vertices);
+    geometry->setIndexData(indices);
+
+    if (resourceManager.adopt(geometry) == InvalidResourceId)
+    {
+        delete geometry;
+        resourceManager.remove(texture->id());
+        removeLabel(labelId);
+        return 0;
+    }
+
+    Material* material = materialManager.createMaterial(QStringLiteral("RenderLabelTextMaterial_%1").arg(resourceSuffix));
+
+    if (material == 0)
+    {
+        resourceManager.remove(geometry->id());
+        resourceManager.remove(texture->id());
+        removeLabel(labelId);
+        return 0;
+    }
+
+    if (!material->setSurfaceMode(SurfaceMode::Texture))
+    {
+        materialManager.remove(material->id());
+        resourceManager.remove(geometry->id());
+        resourceManager.remove(texture->id());
+        removeLabel(labelId);
+        return 0;
+    }
+
+    material->setLightingEnabled(false);
+    material->setTexture(texture);
+    material->setColor(QVector4D(1.0f, 1.0f, 1.0f, 1.0f));
+
+    label->setGeometry(geometry);
+    label->setMaterial(material);
+
+    return label;
+}
+
 bool RenderItem::removeLabel(RenderLabelId id)
 {
     std::map<RenderLabelId, RenderLabel*>::iterator mapIterator = m_labelsById.find(id);
@@ -228,16 +366,11 @@ bool RenderItem::removeLabel(RenderLabelId id)
         return false;
 
     RenderLabel* target = mapIterator->second;
-
-    std::vector<RenderLabel*>::iterator vectorIterator =
-        std::find(m_labels.begin(), m_labels.end(), target);
+    std::vector<RenderLabel*>::iterator vectorIterator = std::find(m_labels.begin(), m_labels.end(), target);
 
     if (vectorIterator == m_labels.end())
     {
-        qWarning() << "RenderItem removeLabel failed: internal Label collection is inconsistent:"
-                   << "Item=" << m_name
-                   << "LabelId=" << static_cast<qulonglong>(id);
-
+        qWarning() << "RenderItem removeLabel failed: internal Label collection is inconsistent:" << "Item=" << m_name << "LabelId=" << static_cast<qulonglong>(id);
         return false;
     }
 
@@ -256,7 +389,6 @@ void RenderItem::clearLabels()
 
     m_labels.clear();
     m_labelsById.clear();
-
     m_nextLabelId = 1;
 }
 
@@ -289,16 +421,15 @@ const RenderLabel* RenderItem::labelAt(int index) const
 RenderLabel* RenderItem::label(RenderLabelId id)
 {
     std::map<RenderLabelId, RenderLabel*>::iterator it = m_labelsById.find(id);
-
     return it != m_labelsById.end() ? it->second : 0;
 }
 
 const RenderLabel* RenderItem::label(RenderLabelId id) const
 {
     std::map<RenderLabelId, RenderLabel*>::const_iterator it = m_labelsById.find(id);
-
     return it != m_labelsById.end() ? it->second : 0;
 }
+
 /// Part Update
 
 bool RenderItem::applyPartUpdate(const RenderPartUpdate& update)
@@ -322,25 +453,19 @@ bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
 
         if (!update.isValid())
         {
-            qWarning() << "RenderItem applyPartUpdates failed: invalid RenderPartUpdate:"
-                       << "Item=" << m_name
-                       << "PartId=" << static_cast<qulonglong>(update.partId);
+            qWarning() << "RenderItem applyPartUpdates failed: invalid RenderPartUpdate:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
 
         if (!updatedPartIds.insert(update.partId).second)
         {
-            qWarning() << "RenderItem applyPartUpdates failed: duplicate PartId:"
-                       << "Item=" << m_name
-                       << "PartId=" << static_cast<qulonglong>(update.partId);
+            qWarning() << "RenderItem applyPartUpdates failed: duplicate PartId:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
 
         if (!containsPart(update.partId))
         {
-            qWarning() << "RenderItem applyPartUpdates failed: Part does not exist:"
-                       << "Item=" << m_name
-                       << "PartId=" << static_cast<qulonglong>(update.partId);
+            qWarning() << "RenderItem applyPartUpdates failed: Part does not exist:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
             return false;
         }
     }
@@ -417,12 +542,9 @@ AxisAlignedBoundingBox RenderItem::worldBounds() const
     return m_localBoundsCache.transformed(m_transform.matrix());
 }
 
-/// Item Interaction
+/// Interaction
 
-bool RenderItem::raycastBox(
-    const QVector3D& rayOrigin,
-    const QVector3D& rayDirection,
-    RenderItemRayHit& hit) const
+bool RenderItem::raycastBox(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const
 {
     hit = RenderItemRayHit();
 
@@ -505,7 +627,6 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
     if (!invertible)
         return false;
 
-    // World Ray -> Item Local Ray。
     const QVector3D localOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
     const QVector3D localSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
 
@@ -528,14 +649,9 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
 
         const Geometry* geometry = currentPart->geometry();
 
-        if (geometry == 0)
+        if (geometry == 0 || geometry->renderType() != RenderType::Triangles)
             continue;
 
-        // 当前精确命中只处理三角形 Primitive。
-        if (geometry->renderType() != RenderType::Triangles)
-            continue;
-
-        // 第一层：Part Bounds 粗筛。
         if (currentPart->hasLocalBounds())
         {
             float boundsDistance = 0.0f;
@@ -544,14 +660,10 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
                 continue;
         }
 
-        // 第二层：取得 Position Attribute。
         AttributeIterator positionBegin = geometry->attributeBegin(GeometryAttribute::Position);
         AttributeIterator positionEnd = geometry->attributeEnd(GeometryAttribute::Position);
 
-        if (positionBegin == positionEnd)
-            continue;
-
-        if (positionBegin.componentCount() < 3)
+        if (positionBegin == positionEnd || positionBegin.componentCount() < 3)
             continue;
 
         const AttributeIterator::difference_type vertexCount = positionEnd - positionBegin;
@@ -559,29 +671,20 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
         if (vertexCount <= 0)
             continue;
 
-        // 第三层：取得 Triangle Index。
         IndexIterator indexBegin = geometry->indexBegin();
         IndexIterator indexEnd = geometry->indexEnd();
 
-        if (indexBegin == indexEnd)
+        if (indexBegin == indexEnd || indexEnd - indexBegin < 3)
             continue;
 
-        if (indexEnd - indexBegin < 3)
-            continue;
-
-        // 每三个 Index 组成一个 Triangle。
         for (IndexIterator indexIt = indexBegin; indexEnd - indexIt >= 3; indexIt += 3)
         {
             const GLuint index0 = indexIt[0];
             const GLuint index1 = indexIt[1];
             const GLuint index2 = indexIt[2];
 
-            if (index0 >= static_cast<GLuint>(vertexCount) ||
-                index1 >= static_cast<GLuint>(vertexCount) ||
-                index2 >= static_cast<GLuint>(vertexCount))
-            {
+            if (index0 >= static_cast<GLuint>(vertexCount) || index1 >= static_cast<GLuint>(vertexCount) || index2 >= static_cast<GLuint>(vertexCount))
                 continue;
-            }
 
             const QVector3D vertex0 = attributePosition(positionBegin[index0]);
             const QVector3D vertex1 = attributePosition(positionBegin[index1]);
@@ -619,13 +722,11 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
     return found;
 }
 
-bool RenderItem::raycast(
-    const QVector3D& rayOrigin,
-    const QVector3D& rayDirection,
-    RenderItemRayHit& hit) const
+bool RenderItem::raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const
 {
     return raycastPoint(rayOrigin, rayDirection, hit);
 }
+
 /// Display
 
 bool RenderItem::isVisible() const
@@ -637,6 +738,7 @@ void RenderItem::setVisible(bool visible)
 {
     m_visible = visible;
 }
+
 bool RenderItem::setDisplayMode(DisplayMode mode)
 {
     switch (mode)
@@ -672,7 +774,7 @@ void RenderItem::setDepthTestEnabled(bool enabled)
     m_depthTestEnabled = enabled;
 }
 
-/// PartManager 内部接口
+/// ID 分配
 
 RenderPartId RenderItem::allocatePartId()
 {
@@ -680,23 +782,23 @@ RenderPartId RenderItem::allocatePartId()
         ++m_nextPartId;
 
     const RenderPartId id = m_nextPartId;
-
     ++m_nextPartId;
 
     return id;
 }
+
 RenderLabelId RenderItem::allocateLabelId()
 {
     while (m_nextLabelId == InvalidRenderLabelId || containsLabel(m_nextLabelId))
         ++m_nextLabelId;
 
     const RenderLabelId id = m_nextLabelId;
-
     ++m_nextLabelId;
 
     return id;
 }
-/// 内部辅助
+
+/// Bounds
 
 void RenderItem::rebuildLocalBoundsCache() const
 {

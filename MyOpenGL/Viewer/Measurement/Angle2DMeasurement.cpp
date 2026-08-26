@@ -9,6 +9,8 @@
 
 #include <cmath>
 #include <vector>
+#include <QVector2D>
+
 
 #include "MyOpenGL/Camera/Camera.h"
 #include "MyOpenGL/Item/RenderItem.h"
@@ -16,7 +18,7 @@
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Viewer/OpenGLViewerWidget.h"
-
+#include "MyOpenGL/Item/RenderLabel.h"
 Angle2DMeasurement::Angle2DMeasurement()
     : m_state(MeasurementState::Idle)
     , m_pointCount(0)
@@ -408,7 +410,24 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
     if (!ensureResultMaterial(viewer))
         return false;
 
-    BufferGeometry* geometry = new BufferGeometry("MeasurementAngle2DResult", BufferUsage::Static, RenderType::Lines);
+    const QVector3D firstOffset = first.worldPosition - m_planeOrigin;
+    const QVector3D vertexOffset = vertex.worldPosition - m_planeOrigin;
+    const QVector3D endOffset = end.worldPosition - m_planeOrigin;
+
+    const QVector2D firstScene(QVector3D::dotProduct(firstOffset, m_planeXAxis), QVector3D::dotProduct(firstOffset, m_planeYAxis));
+    const QVector2D vertexScene(QVector3D::dotProduct(vertexOffset, m_planeXAxis), QVector3D::dotProduct(vertexOffset, m_planeYAxis));
+    const QVector2D endScene(QVector3D::dotProduct(endOffset, m_planeXAxis), QVector3D::dotProduct(endOffset, m_planeYAxis));
+
+    RenderItem* item = viewer->measurementItemManager().createItem("MeasurementAngle2DResult");
+
+    if (item == 0)
+        return false;
+
+    /// 保存共享线材质，删除测量 Item 时不能将该 Material 当作独占资源删除。
+    item->setMaterial(m_resultMaterial);
+    item->setDepthTestEnabled(false);
+
+    BufferGeometry* geometry = new BufferGeometry("MeasurementAngle2DLine", BufferUsage::Static, RenderType::Lines);
 
     std::vector<GeometryVertexAttribute> attributes;
 
@@ -426,17 +445,14 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     geometry->setVertexLayout(6, attributes);
 
-    const QVector3D color(1.0f, 0.82f, 0.16f);
-    const QVector3D& p1 = first.worldPosition;
-    const QVector3D& p2 = vertex.worldPosition;
-    const QVector3D& p3 = end.worldPosition;
+    const QVector3D color(1.0f, 0.82f, 0.16f); // 测量结果统一使用黄色。
 
     const std::vector<GLfloat> vertices =
     {
-        p1.x(), p1.y(), p1.z(), color.x(), color.y(), color.z(),
-        p2.x(), p2.y(), p2.z(), color.x(), color.y(), color.z(),
-        p2.x(), p2.y(), p2.z(), color.x(), color.y(), color.z(),
-        p3.x(), p3.y(), p3.z(), color.x(), color.y(), color.z()
+        firstScene.x(),  firstScene.y(),  0.0f, color.x(), color.y(), color.z(),
+        vertexScene.x(), vertexScene.y(), 0.0f, color.x(), color.y(), color.z(),
+        vertexScene.x(), vertexScene.y(), 0.0f, color.x(), color.y(), color.z(),
+        endScene.x(),    endScene.y(),    0.0f, color.x(), color.y(), color.z()
     };
 
     const std::vector<GLuint> indices = { 0, 1, 2, 3 };
@@ -447,52 +463,88 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
     if (viewer->resourceManager().adopt(geometry) == InvalidResourceId)
     {
         delete geometry;
-        return false;
-    }
-
-    RenderItem* item = viewer->measurementItemManager().createItem("MeasurementAngle2DResult");
-
-    if (item == 0)
-    {
-        viewer->resourceManager().remove(geometry->id());
-        return false;
-    }
-
-    item->setMaterial(m_resultMaterial);
-    item->setDepthTestEnabled(false);
-
-    RenderPart* part = item->createPart();
-
-    if (part == 0)
-    {
         viewer->measurementItemManager().remove(item->id());
-        viewer->resourceManager().remove(geometry->id());
         return false;
     }
 
-    part->setGeometry(geometry);
+    RenderLabel* lineLabel = item->createLabel();
 
-    if (createPersistentLabel(viewer, item, p1, QPointF(5.0, -15.0), QStringLiteral("P1=%1").arg(pointText(first))) == 0)
+    if (lineLabel == 0)
+    {
+        viewer->resourceManager().remove(geometry->id());
+        viewer->measurementItemManager().remove(item->id());
+        return false;
+    }
+
+    lineLabel->setAnchorWorld(m_planeOrigin);
+    lineLabel->setAnchorSence(QVector2D(0.0f, 0.0f));
+    lineLabel->setPixelOffset(QPointF(0.0, 0.0));
+    lineLabel->setGeometry(geometry);
+    lineLabel->setMaterial(m_resultMaterial);
+    lineLabel->setVisible(true);
+
+    const int textPixelSize = 16; // 测量结果统一文本字号。
+
+    RenderLabel* firstLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P1=%1").arg(pointText(first)), textPixelSize);
+
+    if (firstLabel != 0)
+    {
+        firstLabel->setAnchorWorld(m_planeOrigin);
+        firstLabel->setAnchorSence(firstScene);
+        firstLabel->setPixelOffset(QPointF(5.0, -15.0));
+    }
+    else
+    {
         qWarning() << "Angle2DMeasurement commitResult failed to create P1 Label.";
+    }
 
-    if (createPersistentLabel(viewer, item, p2, QPointF(5.0, 5.0), QStringLiteral("P2=%1").arg(pointText(vertex))) == 0)
+    RenderLabel* vertexLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P2=%1").arg(pointText(vertex)), textPixelSize);
+
+    if (vertexLabel != 0)
+    {
+        vertexLabel->setAnchorWorld(m_planeOrigin);
+        vertexLabel->setAnchorSence(vertexScene);
+        vertexLabel->setPixelOffset(QPointF(5.0, 5.0));
+    }
+    else
+    {
         qWarning() << "Angle2DMeasurement commitResult failed to create P2 Label.";
+    }
 
-    if (createPersistentLabel(viewer, item, p3, QPointF(5.0, 5.0), QStringLiteral("P3=%1").arg(pointText(end))) == 0)
+    RenderLabel* endLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P3=%1").arg(pointText(end)), textPixelSize);
+
+    if (endLabel != 0)
+    {
+        endLabel->setAnchorWorld(m_planeOrigin);
+        endLabel->setAnchorSence(endScene);
+        endLabel->setPixelOffset(QPointF(5.0, 5.0));
+    }
+    else
+    {
         qWarning() << "Angle2DMeasurement commitResult failed to create P3 Label.";
+    }
 
     double angle = 0.0;
     QString angleText = QStringLiteral("A=?");
 
-    if (angleValue(p1, p2, p3, angle))
+    if (angleValue(first.worldPosition, vertex.worldPosition, end.worldPosition, angle))
         angleText = QStringLiteral("A=%1 %2").arg(QString::number(angle, 'f', 2)).arg(QChar(0x00B0));
 
-    if (createPersistentLabel(viewer, item, p2, QPointF(5.0, -15.0), angleText) == 0)
+    RenderLabel* angleLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), angleText, textPixelSize);
+
+    if (angleLabel != 0)
+    {
+        angleLabel->setAnchorWorld(m_planeOrigin);
+        angleLabel->setAnchorSence(vertexScene);
+        angleLabel->setPixelOffset(QPointF(5.0, -15.0));
+    }
+    else
+    {
         qWarning() << "Angle2DMeasurement commitResult failed to create Angle Label.";
+    }
 
     return true;
 }
-
 bool Angle2DMeasurement::angleValue(const QVector3D& first, const QVector3D& vertex, const QVector3D& end, double& angle) const
 {
     const QVector3D firstDirection = first - vertex;

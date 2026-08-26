@@ -2,7 +2,8 @@
 
 RenderLabel::RenderLabel(RenderLabelId id)
     : m_id(id)
-    , m_anchorPosition(0.0f, 0.0f, 0.0f)
+    , m_anchorWorld(0.0f, 0.0f, 0.0f)
+    , m_anchorScence(0.0f, 0.0f)
     , m_pixelOffset(0.0, 0.0)
     , m_geometry(0)
     , m_material(0)
@@ -14,31 +15,25 @@ RenderLabel::~RenderLabel()
 {
 }
 
-/// Text
-
-const QString& RenderLabel::text() const
+const QVector3D& RenderLabel::anchorWorld() const
 {
-    return m_text;
+    return m_anchorWorld;
 }
 
-void RenderLabel::setText(const QString& text)
+void RenderLabel::setAnchorWorld(const QVector3D& anchor)
 {
-    m_text = text;
+    m_anchorWorld = anchor;
 }
 
-/// Anchor
-
-const QVector3D& RenderLabel::anchorPosition() const
+const QVector2D& RenderLabel::anchorSence() const
 {
-    return m_anchorPosition;
+    return m_anchorScence;
 }
 
-void RenderLabel::setAnchorPosition(const QVector3D& position)
+void RenderLabel::setAnchorSence(const QVector2D& anchor)
 {
-    m_anchorPosition = position;
+    m_anchorScence = anchor;
 }
-
-/// Screen Offset
 
 const QPointF& RenderLabel::pixelOffset() const
 {
@@ -50,8 +45,6 @@ void RenderLabel::setPixelOffset(const QPointF& offset)
     m_pixelOffset = offset;
 }
 
-/// Geometry
-
 const Geometry* RenderLabel::geometry() const
 {
     return m_geometry;
@@ -61,8 +54,6 @@ void RenderLabel::setGeometry(const Geometry* geometry)
 {
     m_geometry = geometry;
 }
-
-/// Material
 
 const Material* RenderLabel::material() const
 {
@@ -74,8 +65,6 @@ void RenderLabel::setMaterial(const Material* material)
     m_material = material;
 }
 
-/// Display
-
 bool RenderLabel::isVisible() const
 {
     return m_visible;
@@ -86,11 +75,7 @@ void RenderLabel::setVisible(bool visible)
     m_visible = visible;
 }
 
-/// State
-
 bool RenderLabel::isRenderable() const
 {
-    return m_visible &&
-           m_geometry != 0 &&
-           m_material != 0;
+    return m_visible && m_geometry != 0 && m_material != 0;
 }

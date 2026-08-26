@@ -7,6 +7,7 @@
 #include <QPen>
 
 #include <vector>
+#include <QVector2D>
 
 #include "MyOpenGL/Camera/Camera.h"
 #include "MyOpenGL/Item/RenderItem.h"
@@ -444,41 +445,23 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
     if (!ensureResultMaterial(viewer))
         return false;
 
-    /// 世界原点在当前视口中的投影就是二维标尺原点。
-    QPointF originPosition;
+    const QVector3D startOffset = start.worldPosition - m_planeOrigin;
+    const QVector3D endOffset = end.worldPosition - m_planeOrigin;
 
-    if (!viewer->worldPointAtScene(m_planeOrigin, originPosition))
-        return false;
-
-    /// 测量点相对于二维标尺原点的屏幕 Pixel 偏移。
-    const QPointF startOffset = start.viewportPosition - originPosition;
-    const QPointF endOffset = end.viewportPosition - originPosition;
-    const QPointF middleOffset = (start.viewportPosition + end.viewportPosition) * 0.5 - originPosition;
-
-    /// ------------------------------------------------
-    /// Result Item
-    /// ------------------------------------------------
+    const QVector2D startScene(QVector3D::dotProduct(startOffset, m_planeXAxis), QVector3D::dotProduct(startOffset, m_planeYAxis));
+    const QVector2D endScene(QVector3D::dotProduct(endOffset, m_planeXAxis), QVector3D::dotProduct(endOffset, m_planeYAxis));
+    const QVector2D middleScene = (startScene + endScene) * 0.5f;
 
     RenderItem* item = viewer->measurementItemManager().createItem("MeasurementLength2DResult");
 
     if (item == 0)
         return false;
 
+    /// 保存共享线材质，删除测量 Item 时不能将该 Material 当作独占 Label Material 删除。
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
 
-    /// ------------------------------------------------
-    /// Line Geometry Label
-    /// ------------------------------------------------
-    ///
-    /// RenderLabel Geometry 使用 OpenGL Screen Pixel：
-    /// +X 向右，+Y 向上。
-    ///
-    /// startOffset / endOffset 是 Qt Viewport：
-    /// +X 向右，+Y 向下。
-    ///
-    /// 因此 Geometry Y 取反。
-
+    /// 测量线 Geometry 使用二维标尺坐标，不使用 Pixel。
     BufferGeometry* geometry = new BufferGeometry("MeasurementLength2DLine", BufferUsage::Static, RenderType::Lines);
 
     std::vector<GeometryVertexAttribute> attributes;
@@ -497,17 +480,12 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
 
     geometry->setVertexLayout(6, attributes);
 
-    const QVector3D color(1.0f, 0.82f, 0.16f);
-
-    const float startX = static_cast<float>(startOffset.x());
-    const float startY = -static_cast<float>(startOffset.y());
-    const float endX = static_cast<float>(endOffset.x());
-    const float endY = -static_cast<float>(endOffset.y());
+    const QVector3D color(1.0f, 0.82f, 0.16f); // 测量结果统一使用黄色。
 
     const std::vector<GLfloat> vertices =
     {
-        startX, startY, 0.0f, color.x(), color.y(), color.z(),
-        endX,   endY,   0.0f, color.x(), color.y(), color.z()
+        startScene.x(), startScene.y(), 0.0f, color.x(), color.y(), color.z(),
+        endScene.x(),   endScene.y(),   0.0f, color.x(), color.y(), color.z()
     };
 
     const std::vector<GLuint> indices = { 0, 1 };
@@ -531,42 +509,60 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
         return false;
     }
 
-    /// Geometry 坐标已经是相对于标尺原点的 Pixel 坐标。
-    lineLabel->setAnchorPosition(m_planeOrigin);
+    lineLabel->setAnchorWorld(m_planeOrigin);
+    lineLabel->setAnchorSence(QVector2D(0.0f, 0.0f));
     lineLabel->setPixelOffset(QPointF(0.0, 0.0));
     lineLabel->setGeometry(geometry);
     lineLabel->setMaterial(m_resultMaterial);
+    lineLabel->setVisible(true);
 
-    /// ------------------------------------------------
-    /// P1 Text Label
-    /// ------------------------------------------------
+    const int textPixelSize = 16; // 测量结果统一文本字号。
 
-    const QString startText = QStringLiteral("P1=%1").arg(pointText(start));
+    RenderLabel* startLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P1=%1").arg(pointText(start)), textPixelSize);
 
-    if (createPersistentLabel(viewer, item, m_planeOrigin, startOffset + QPointF(5.0, -15.0), startText) == 0)
+    if (startLabel != 0)
+    {
+        startLabel->setAnchorWorld(m_planeOrigin);
+        startLabel->setAnchorSence(startScene);
+        startLabel->setPixelOffset(QPointF(5.0, -15.0));
+    }
+    else
+    {
         qWarning() << "Length2DMeasurement commitResult failed to create P1 Label.";
+    }
 
-    /// ------------------------------------------------
-    /// P2 Text Label
-    /// ------------------------------------------------
+    RenderLabel* endLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P2=%1").arg(pointText(end)), textPixelSize);
 
-    const QString endText = QStringLiteral("P2=%1").arg(pointText(end));
-
-    if (createPersistentLabel(viewer, item, m_planeOrigin, endOffset + QPointF(5.0, 5.0), endText) == 0)
+    if (endLabel != 0)
+    {
+        endLabel->setAnchorWorld(m_planeOrigin);
+        endLabel->setAnchorSence(endScene);
+        endLabel->setPixelOffset(QPointF(5.0, 5.0));
+    }
+    else
+    {
         qWarning() << "Length2DMeasurement commitResult failed to create P2 Label.";
-
-    /// ------------------------------------------------
-    /// Length Text Label
-    /// ------------------------------------------------
+    }
 
     const double length = static_cast<double>((end.worldPosition - start.worldPosition).length());
     const QString lengthText = QStringLiteral("L=%1").arg(QString::number(length, 'f', 3));
 
-    if (createPersistentLabel(viewer, item, m_planeOrigin, middleOffset + QPointF(5.0, -15.0), lengthText) == 0)
+    RenderLabel* lengthLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), lengthText, textPixelSize);
+
+    if (lengthLabel != 0)
+    {
+        lengthLabel->setAnchorWorld(m_planeOrigin);
+        lengthLabel->setAnchorSence(middleScene);
+        lengthLabel->setPixelOffset(QPointF(5.0, -15.0));
+    }
+    else
+    {
         qWarning() << "Length2DMeasurement commitResult failed to create Length Label.";
+    }
 
     return true;
 }
+
 QString Length2DMeasurement::pointText(
     const MeasurementPoint& point) const
 {
