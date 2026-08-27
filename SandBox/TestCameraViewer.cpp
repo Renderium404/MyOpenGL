@@ -30,6 +30,7 @@
 #include "MyOpenGL/Viewer/Measurement/Length3DMeasurement.h"
 #include "MyOpenGL/Viewer/Measurement/Angle2DMeasurement.h"
 #include "MyOpenGL/Viewer/Measurement/Angle3DMeasurement.h"
+#include <functional>
 class CameraTestViewer : public OpenGLViewerWidget
 {
 public:
@@ -1108,10 +1109,10 @@ public:
         QHBoxLayout* mainLayout = new QHBoxLayout(this);
         mainLayout->setContentsMargins(0, 0, 0, 0);
         mainLayout->setSpacing(0);
-
+        m_viewer = new CameraTestViewer(this);
         QWidget* functionPanel = buildFunctionPanel();
 
-        m_viewer = new CameraTestViewer(this);
+        
 
         mainLayout->addWidget(functionPanel);
         mainLayout->addWidget(m_viewer, 1);
@@ -1132,13 +1133,15 @@ private:
         QPushButton* length3DButton = new QPushButton(QStringLiteral("三维长度"), panel);
         QPushButton* angle2DButton = new QPushButton(QStringLiteral("二维角度"), panel);
         QPushButton* angle3DButton = new QPushButton(QStringLiteral("三维角度"), panel);
-
+        QPushButton* m_undoButton = new QPushButton(QStringLiteral("撤销"), panel);
+        QPushButton* m_clearButton = new QPushButton(QStringLiteral("清空"), panel);
         navigationButton->setCheckable(true);
         length2DButton->setCheckable(true);
         length3DButton->setCheckable(true);
         angle2DButton->setCheckable(true);
         angle3DButton->setCheckable(true);
-
+        m_undoButton->setCheckable(true);
+        m_clearButton->setCheckable(true);
         QButtonGroup* group = new QButtonGroup(panel);
         group->setExclusive(true);
 
@@ -1156,6 +1159,8 @@ private:
         layout->addWidget(length3DButton);
         layout->addWidget(angle2DButton);
         layout->addWidget(angle3DButton);
+        layout->addWidget(m_undoButton);
+        layout->addWidget(m_clearButton);
         layout->addStretch();
 
         connect(navigationButton, &QPushButton::clicked, this, [this]()
@@ -1191,7 +1196,22 @@ private:
             m_viewer->setMeasurementTool(&m_angle3DMeasurement);
             m_viewer->setFocus();
         });
-
+        connect(m_undoButton, &QPushButton::clicked, this, [this]()
+        {
+            m_viewer->removeLastMeasurementItem();
+            m_viewer->setFocus();
+        });
+        connect(m_clearButton, &QPushButton::clicked, this, [this]()
+        {
+            m_viewer->clearMeasurementItems();
+            m_viewer->setFocus();
+        });
+        connect(m_viewer, &OpenGLViewerWidget::measurementFinished, this, [this,navigationButton]()
+        {
+            navigationButton->setChecked(true);
+            m_viewer->setMeasurementTool(0);
+            m_viewer->setFocus();
+        });
         return panel;
     }
 

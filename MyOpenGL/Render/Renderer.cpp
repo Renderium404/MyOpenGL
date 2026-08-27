@@ -394,7 +394,7 @@ bool Renderer::beginFrame(const RenderContext& context)
     gl->glDisable(GL_BLEND);     // 默认关闭颜色混合，由具体 RenderState 决定是否开启。
 
     gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // 默认使用填充模式绘制三角形。
-
+    gl->glLineWidth(1.0f);
     gl->glClearColor(m_clearColor.x(), m_clearColor.y(), m_clearColor.z(), m_clearColor.w());// 设置当前 Frame 的背景色。
     gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                                  // 清除当前 Frame 的颜色缓冲和深度缓冲。
 
@@ -417,7 +417,7 @@ void Renderer::endFrame()
 
     gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     gl->glDisable(GL_POLYGON_OFFSET_LINE);
-
+    gl->glLineWidth(1.0f);
     gl->glDepthFunc(GL_LESS);
     gl->glDepthMask(GL_TRUE);
     gl->glEnable(GL_DEPTH_TEST);
@@ -449,8 +449,9 @@ bool Renderer::clearDepth(const RenderViewport& viewport)
     if (gl == 0)
         return false;
 
-    // glClear() 本身不受 glViewport() 限制，因此使用 Scissor
-    // 将 Depth Clear 严格限制在导航器自己的屏幕区域。
+    /// Depth Clear 必须允许写入 Depth Buffer。
+    gl->glDepthMask(GL_TRUE);
+
     gl->glEnable(GL_SCISSOR_TEST);
     gl->glScissor(viewport.x, viewport.y, viewport.width, viewport.height);
     gl->glClear(GL_DEPTH_BUFFER_BIT);
@@ -458,7 +459,6 @@ bool Renderer::clearDepth(const RenderViewport& viewport)
 
     return true;
 }
-
 bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const std::vector<const Light*>& lights)
 {
     if (!m_frameActive)
@@ -567,9 +567,17 @@ bool Renderer::drawTextureGeometry(const Geometry* geometry, const Material* mat
     gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
     gl->glUniform1i(m_textureSamplerLocation, 0);
 
-    gl->glBindVertexArray(geometry->vao());
-    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-    gl->glBindVertexArray(0);
+gl->glBindVertexArray(geometry->vao());
+
+if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    gl->glLineWidth(geometry->lineWidth());
+
+gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+
+if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    gl->glLineWidth(1.0f);
+
+gl->glBindVertexArray(0);
 
     gl->glBindTexture(GL_TEXTURE_2D, 0);
 
@@ -626,9 +634,17 @@ bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& colo
     gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
     gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
 
-    gl->glBindVertexArray(geometry->vao());
-    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-    gl->glBindVertexArray(0);
+gl->glBindVertexArray(geometry->vao());
+
+if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    gl->glLineWidth(geometry->lineWidth());
+
+gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+
+if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    gl->glLineWidth(1.0f);
+
+gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
 
@@ -685,7 +701,11 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
     gl->glUniformMatrix4fv(m_colorProjectionLocation, 1, GL_FALSE, state.projection.constData());
 
     gl->glBindVertexArray(geometry->vao());
+    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+        gl->glLineWidth(geometry->lineWidth());
     gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+        gl->glLineWidth(1.0f);
     gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
@@ -881,10 +901,20 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         gl->glUniform1fv(m_litLightOuterConeCosLocation, lightCount, lightOuterConeCos);
     }
 
+    // gl->glBindVertexArray(geometry->vao());
+    // gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    // gl->glBindVertexArray(0);
     gl->glBindVertexArray(geometry->vao());
-    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-    gl->glBindVertexArray(0);
 
+    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+        gl->glLineWidth(geometry->lineWidth());
+
+    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+
+    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+        gl->glLineWidth(1.0f);
+
+    gl->glBindVertexArray(0);
     geometry->finishDrawGL(gl);
 
     return true;

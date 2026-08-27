@@ -2,6 +2,7 @@
 
 Geometry::Geometry(const QString& name)
     : Resource(name, ResourceType::Geometry)
+    , m_lineWidth(1.0f)
 {
 }
 
@@ -94,7 +95,21 @@ IndexIterator Geometry::indexEnd() const
 
     return IndexIterator(accessor, accessor->size());
 }
+float Geometry::lineWidth() const
+{
+    return m_lineWidth;
+}
 
+bool Geometry::setLineWidth(float width)
+{
+    if (width <= 0.0f)
+    {
+        return false;
+    }
+
+    m_lineWidth = width;
+    return true;
+}
 std::shared_ptr<const GeometryAttributeIteratorAccessor> Geometry::createAttributeIteratorAccessor(GLuint location) const
 {
     Q_UNUSED(location);

@@ -29,6 +29,7 @@ SOURCES += \
     $$PWD/Item/ItemManager.cpp \
     $$PWD/Item/RenderItem.cpp \
     $$PWD/Item/RenderPart.cpp \
+    $$PWD/Item/RenderLabel.cpp \
     $$PWD/Item/RenderPartUpdate.cpp \
     $$PWD/Item/Transform.cpp \
     $$PWD/Light/Light.cpp \
@@ -41,7 +42,6 @@ SOURCES += \
     $$PWD/Render/RenderState.cpp \
     $$PWD/Render/ShaderProgram.cpp \
     $$PWD/Resource/BufferGeometry.cpp \
-    $$PWD/Resource/CurveResource.cpp \
     $$PWD/Resource/ExternalGeometry.cpp \
     $$PWD/Resource/ExternalGpuGeometry.cpp \
     $$PWD/Resource/Geometry.cpp \
@@ -74,6 +74,7 @@ HEADERS += \
     $$PWD/Item/ItemManager.h \
     $$PWD/Item/RenderItem.h \
     $$PWD/Item/RenderPart.h \
+    $$PWD/Item/RenderLabel.h \
     $$PWD/Item/RenderPartUpdate.h \
     $$PWD/Item/Transform.h \
     $$PWD/Light/Light.h \
@@ -86,7 +87,6 @@ HEADERS += \
     $$PWD/Render/RenderState.h \
     $$PWD/Render/ShaderProgram.h \
     $$PWD/Resource/BufferGeometry.h \
-    $$PWD/Resource/CurveResource.h \
     $$PWD/Resource/ExternalGeometry.h \
     $$PWD/Resource/ExternalGeometryData.h \
     $$PWD/Resource/ExternalGeometryDataSource.h \

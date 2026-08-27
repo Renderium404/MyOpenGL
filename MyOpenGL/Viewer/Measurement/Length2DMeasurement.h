@@ -14,15 +14,12 @@ public:
     Length2DMeasurement();
 
     MeasurementType type() const override;
-    MeasurementState state() const override;
 
     void reset() override;
 
     bool mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) override;
     bool mouseMoveEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) override;
     bool mouseReleaseEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) override;
-    bool keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event) override;
-
     void drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const override;
 
 private:
@@ -34,8 +31,6 @@ private:
     QString pointText(const MeasurementPoint& point) const;
 
 private:
-    MeasurementState m_state;
-
     MeasurementPoint m_startPoint;
     MeasurementPoint m_endPoint;
     MeasurementPoint m_currentPoint;

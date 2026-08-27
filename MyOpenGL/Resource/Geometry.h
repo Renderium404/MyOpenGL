@@ -58,10 +58,16 @@ public:
     ///索引访问
     IndexIterator indexBegin() const;
     IndexIterator indexEnd() const;
+    /// 返回 Lines / LineStrip 的屏幕 Pixel 宽度。
+    float lineWidth() const;
+    /// 设置 Lines / LineStrip 的屏幕 Pixel 宽度，必须大于 0。
+    bool setLineWidth(float width);
 protected:
     explicit Geometry(const QString& name);
     virtual std::shared_ptr<const GeometryAttributeIteratorAccessor> createAttributeIteratorAccessor(GLuint location) const;
     virtual std::shared_ptr<const GeometryIndexIteratorAccessor> createIndexIteratorAccessor() const;
+private:
+    float m_lineWidth; // Lines / LineStrip 的屏幕 Pixel 宽度。
 };
 
 #endif // GEOMETRY_H

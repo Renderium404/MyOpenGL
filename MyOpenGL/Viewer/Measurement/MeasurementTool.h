@@ -4,6 +4,7 @@
 #include <QPointF>
 #include <QString>
 #include <QVector3D>
+#include <QVector4D>
 
 class QKeyEvent;
 class QMouseEvent;
@@ -17,14 +18,10 @@ class RenderLabel;
 enum class MeasurementType
 {
     None,
-    /// 在当前视口平面内测量长度。
-    Length2D,
-    /// 使用模型真实三维点测量空间长度。
-    Length3D,
-    /// 在当前视口平面内测量角度。
-    Angle2D,
-    /// 使用模型真实三维点测量空间角度。
-    Angle3D
+    Length2D, // 当前视口平面长度测量。
+    Length3D, // 模型真实三维长度测量。
+    Angle2D,  // 当前视口平面角度测量。
+    Angle3D   // 模型真实三维角度测量。
 };
 
 /// 测量交互状态。
@@ -40,7 +37,7 @@ struct MeasurementPoint
 {
     QPointF viewportPosition; // 屏幕位置。
     QVector3D worldPosition;  // 世界坐标。
-    bool valid;               // 是否命中有效位置。
+    bool valid;               // 是否为有效测量点。
 
     MeasurementPoint()
         : valid(false)
@@ -48,40 +45,59 @@ struct MeasurementPoint
     }
 };
 
+/// 测量工具基类。
+/// 统一管理测量状态、结果线颜色和结果线宽度。
 class MeasurementTool
 {
 public:
-    virtual ~MeasurementTool()
-    {
-    }
+    MeasurementTool();
+    virtual ~MeasurementTool();
 
+    /// 基本信息
+    /// 返回当前测量类型。
     virtual MeasurementType type() const = 0;
-    virtual MeasurementState state() const = 0;
+    /// 返回当前测量交互状态。
+    MeasurementState state() const;
+    /// 设置当前测量交互状态。
+    void setState(MeasurementState state);
 
+    /// 结果样式
+    /// 返回测量结果线颜色。
+    const QVector4D& lineColor() const;
+    /// 设置测量结果线颜色。
+    void setLineColor(const QVector4D& color);
+    /// 返回测量结果线宽度，单位为屏幕 Pixel。
+    float lineWidth() const;
+    /// 设置测量结果线宽度，必须大于 0。
+    bool setLineWidth(float width);
+
+    /// 交互
+
+    /// 重置当前测量。
     virtual void reset() = 0;
-
     virtual bool mousePressEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) = 0;
     virtual bool mouseMoveEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) = 0;
     virtual bool mouseReleaseEvent(OpenGLViewerWidget* viewer, QMouseEvent* event) = 0;
-    virtual bool keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event) = 0;
+    virtual bool keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event);
 
-    /// 绘制当前交互过程中的临时 Overlay。
+    /// 绘制当前测量过程中的临时 Overlay。
     virtual void drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const = 0;
 
 protected:
-    /// 创建持久化测量 Label。
-    ///
-    /// Label 会挂到指定 RenderItem 上。
-    /// anchorPosition 位于 Item Local Space。
-    /// pixelOffset 使用 Qt 风格屏幕坐标：
-    /// +X 向右，+Y 向下。
-    ///
-    /// Geometry / Texture / Material 由 Viewer 对应 Manager 管理，
-    /// RenderLabel 自身只借用这些资源。
-    static RenderLabel* createPersistentLabel(OpenGLViewerWidget* viewer,RenderItem* item,const QVector3D& anchorPosition,const QPointF& pixelOffset,const QString& text);
+    /// 创建持久化文本 Label。
+    static RenderLabel* createPersistentLabel(OpenGLViewerWidget* viewer, 
+                                                RenderItem* item, 
+                                                const QVector3D& anchorWorld, 
+                                                const QVector2D& anchorSence, 
+                                                const QPointF& pixelOffset,
+                                                const QString& text);
+    /// 绘制临时 QPainter 文本 Label。
+    static void drawOverlayLabel(QPainter& painter, const QPointF& position, const QString& text);
 
-    /// 绘制交互过程中的临时 QPainter Label。
-    static void drawOverlayLabel(QPainter& painter,const QPointF& position,const QString& text);
+private:
+    MeasurementState m_state; // 当前测量交互状态。
+    QVector4D m_lineColor;     // 测量结果线 RGBA 颜色。
+    float m_lineWidth;         // 测量结果线屏幕 Pixel 宽度。
 };
 
 #endif // MEASUREMENTTOOL_H

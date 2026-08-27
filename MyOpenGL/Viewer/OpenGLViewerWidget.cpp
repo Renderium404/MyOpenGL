@@ -76,6 +76,7 @@ OpenGLViewerWidget::OpenGLViewerWidget(QWidget* parent)
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setVersion(3, 3);
+    format.setOption(QSurfaceFormat::DeprecatedFunctions); //启用OpenGL的弃用功能宽线，后续可使用三角网格自行绘制宽线
     format.setProfile(QSurfaceFormat::CoreProfile);
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
@@ -1068,6 +1069,8 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
     std::vector<ResourceId> textureIds;
     std::vector<MaterialId> materialIds;
 
+    const Material* itemMaterial = item->material();
+
     /// 收集 RenderPart Geometry。
     for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
     {
@@ -1082,7 +1085,7 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
             geometryIds.push_back(geometryId);
     }
 
-    /// 收集 RenderLabel Geometry / Material / Texture。
+    /// 收集 RenderLabel Geometry / 独立 Material / Texture。
     for (int labelIndex = 0; labelIndex < item->labelCount(); ++labelIndex)
     {
         const RenderLabel* label = item->labelAt(labelIndex);
@@ -1103,6 +1106,10 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
         if (material == 0)
             continue;
 
+        /// Item Material 是测量工具共享 Material，不能随单个测量结果删除。
+        if (material == itemMaterial)
+            continue;
+
         const MaterialId materialId = material->id();
 
         if (materialId != InvalidMaterialId && std::find(materialIds.begin(), materialIds.end(), materialId) == materialIds.end())
@@ -1121,8 +1128,7 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
     const RenderItemId itemId = item->id();
 
-    /// 先删除 Item。
-    /// RenderItem 会销毁自己拥有的 RenderPart 和 RenderLabel，但不会删除其借用的 Geometry / Material / Texture。
+    /// RenderItem 拥有 RenderPart / RenderLabel，但不拥有它们引用的资源。
     if (!m_measurementItemManager.remove(itemId))
         return false;
 
@@ -1142,8 +1148,7 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
     bool result = true;
 
-    /// 删除 Label Material。
-    /// MaterialManager::remove() 不会删除 Material 引用的 Texture，所以 Texture 单独在下面释放。
+    /// 删除文本 Label 独立 Material。
     for (std::size_t materialIndex = 0; materialIndex < materialIds.size(); ++materialIndex)
     {
         if (!m_materialManager.remove(materialIds[materialIndex]))
@@ -1153,7 +1158,7 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
         }
     }
 
-    /// 删除 Part / Label Geometry。
+    /// 删除当前测量结果使用的 Geometry。
     for (std::size_t geometryIndex = 0; geometryIndex < geometryIds.size(); ++geometryIndex)
     {
         if (!m_resourceManager.remove(geometryIds[geometryIndex], gl))
@@ -1163,7 +1168,7 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
         }
     }
 
-    /// 删除 Label Texture。
+    /// 删除文本 Label 使用的 Texture。
     for (std::size_t textureIndex = 0; textureIndex < textureIds.size(); ++textureIndex)
     {
         if (!m_resourceManager.remove(textureIds[textureIndex], gl))
@@ -1178,6 +1183,8 @@ bool OpenGLViewerWidget::removeMeasurementItemAt(int index)
 
     return result;
 }
+
+
 bool OpenGLViewerWidget::scenePointAtWorld(const QPointF& scene, QVector3D& world) const
 {
     if (width() <= 0 || height() <= 0)
@@ -1613,11 +1620,20 @@ void OpenGLViewerWidget::wheelEvent(QWheelEvent* event)
 
 void OpenGLViewerWidget::keyPressEvent(QKeyEvent* event)
 {
-    if (m_measurementTool != 0 && m_measurementTool->keyPressEvent(this, event))
+    if (m_measurementTool != 0)
     {
-        event->accept();
-        update();
-        return;
+        MeasurementTool* tool = m_measurementTool;
+        const bool handled = tool->keyPressEvent(this, event);
+
+        if (tool->state() == MeasurementState::Finished)
+            emit measurementFinished(tool->type());
+
+        if (handled)
+        {
+            event->accept();
+            update();
+            return;
+        }
     }
 
     if (handleKeyPress(event))

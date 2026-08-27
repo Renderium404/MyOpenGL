@@ -29,7 +29,6 @@ struct RenderState
     QMatrix4x4 projection;      //窗口坐标转窗口投影的变换矩阵
 
     RenderViewport viewport;    //窗口信息
-
     bool depthTestEnabled;      //是否启用深度测试
     bool depthWriteEnabled;
     bool blendEnabled;          

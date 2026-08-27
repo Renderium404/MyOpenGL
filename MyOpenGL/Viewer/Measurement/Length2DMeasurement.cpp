@@ -16,10 +16,9 @@
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Viewer/OpenGLViewerWidget.h"
-
+#include "MyOpenGL/Viewer/Modeling/SimpleModeling.h"
 Length2DMeasurement::Length2DMeasurement()
-    : m_state(MeasurementState::Idle)
-    , m_hasCursorPosition(false)
+    : m_hasCursorPosition(false)
     , m_planeOrigin(0.0f, 0.0f, 0.0f)
     , m_resultMaterial(0)
 {
@@ -30,14 +29,10 @@ MeasurementType Length2DMeasurement::type() const
     return MeasurementType::Length2D;
 }
 
-MeasurementState Length2DMeasurement::state() const
-{
-    return m_state;
-}
 
 void Length2DMeasurement::reset()
 {
-    m_state = MeasurementState::Idle;
+    setState( MeasurementState::Idle );
 
     m_startPoint = MeasurementPoint();
     m_endPoint = MeasurementPoint();
@@ -71,7 +66,7 @@ bool Length2DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEven
     MeasurementPoint point;
 
     /// 开始新一轮测量。
-    if (m_state == MeasurementState::Idle || m_state == MeasurementState::Finished)
+    if (state() == MeasurementState::Idle || state() == MeasurementState::Finished)
     {
         reset();
 
@@ -94,14 +89,14 @@ bool Length2DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEven
 
         m_startPoint = point;
         m_currentPoint = point;
-        m_state = MeasurementState::Collecting;
+        setState(MeasurementState::Collecting );
 
         viewer->update();
         return true;
     }
 
     /// 确定终点并提交持久化结果。
-    if (m_state == MeasurementState::Collecting)
+    if (state() == MeasurementState::Collecting)
     {
         if (!viewportPointToPlane(viewer, event->localPos(), point))
         {
@@ -121,7 +116,7 @@ bool Length2DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEven
 
         m_currentPoint = point;
         m_endPoint = point;
-        m_state = MeasurementState::Finished;
+        setState(MeasurementState::Finished );
 
         viewer->update();
         return true;
@@ -144,7 +139,7 @@ bool Length2DMeasurement::mouseMoveEvent(OpenGLViewerWidget* viewer, QMouseEvent
         return true;
 
     /// 尚未开始时，二维测量平面跟随 Camera。
-    if (m_state == MeasurementState::Idle)
+    if (state() == MeasurementState::Idle)
     {
         m_planeOrigin = QVector3D(0.0f, 0.0f, 0.0f);
         m_planeNormal = camera->forward().normalized();
@@ -171,26 +166,14 @@ bool Length2DMeasurement::mouseReleaseEvent(OpenGLViewerWidget* viewer, QMouseEv
     return true;
 }
 
-bool Length2DMeasurement::keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event)
-{
-    if (viewer == 0 || event == 0)
-        return false;
-
-    if (event->key() == Qt::Key_Escape)
-    {
-        reset();
-        viewer->update();
-    }
-
-    return true;
-}
 
 void Length2DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const
 {
     if (viewer == 0)
         return;
 
-    const QColor pointColor(255, 210, 40);
+    const QVector4D& color = lineColor();
+    const QColor pointColor = QColor::fromRgbF(color.x(), color.y(), color.z(), color.w());
 
     /// ------------------------------------------------
     /// Idle
@@ -199,7 +182,7 @@ void Length2DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
     /// 尚未开始：
     /// 显示当前可选择的 P1。
 
-    if (m_state == MeasurementState::Idle)
+    if (state() == MeasurementState::Idle)
     {
         if (!m_hasCursorPosition)
             return;
@@ -242,7 +225,7 @@ void Length2DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
     ///
     /// QPainter 这里只保留当前鼠标位置提示。
 
-    if (m_state == MeasurementState::Finished)
+    if (state() == MeasurementState::Finished)
     {
         if (!m_hasCursorPosition)
             return;
@@ -274,7 +257,7 @@ void Length2DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
     /// Collecting
     /// ------------------------------------------------
 
-    if (m_state != MeasurementState::Collecting || !m_startPoint.valid)
+    if (state() != MeasurementState::Collecting || !m_startPoint.valid)
         return;
 
     QPointF startPosition;
@@ -294,8 +277,10 @@ void Length2DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
 
     /// 临时测量线。
 
+
+
     QPen linePen(pointColor);
-    linePen.setWidth(2);
+    linePen.setWidthF(lineWidth());
     linePen.setStyle(Qt::DashLine);
 
     painter.setPen(linePen);
@@ -451,47 +436,26 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
     const QVector2D startScene(QVector3D::dotProduct(startOffset, m_planeXAxis), QVector3D::dotProduct(startOffset, m_planeYAxis));
     const QVector2D endScene(QVector3D::dotProduct(endOffset, m_planeXAxis), QVector3D::dotProduct(endOffset, m_planeYAxis));
     const QVector2D middleScene = (startScene + endScene) * 0.5f;
+    const QVector2D lineVector = endScene - startScene;
 
     RenderItem* item = viewer->measurementItemManager().createItem("MeasurementLength2DResult");
 
     if (item == 0)
         return false;
 
-    /// 保存共享线材质，删除测量 Item 时不能将该 Material 当作独占 Label Material 删除。
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
 
-    /// 测量线 Geometry 使用二维标尺坐标，不使用 Pixel。
-    BufferGeometry* geometry = new BufferGeometry("MeasurementLength2DLine", BufferUsage::Static, RenderType::Lines);
+    const QVector4D& measurementColor = lineColor();
+    const QVector3D geometryColor(measurementColor.x(), measurementColor.y(), measurementColor.z());
 
-    std::vector<GeometryVertexAttribute> attributes;
+    BufferGeometry* geometry = SimpleModeling::createLine("MeasurementLength2DLine", QVector3D(0.0f, 0.0f, 0.0f), QVector3D(lineVector.x(), lineVector.y(), 0.0f), geometryColor, lineWidth());
 
-    GeometryVertexAttribute position;
-    position.location = GeometryAttribute::Position;
-    position.componentCount = 3;
-    position.valueOffset = 0;
-    attributes.push_back(position);
-
-    GeometryVertexAttribute colorAttribute;
-    colorAttribute.location = GeometryAttribute::Color;
-    colorAttribute.componentCount = 3;
-    colorAttribute.valueOffset = 3;
-    attributes.push_back(colorAttribute);
-
-    geometry->setVertexLayout(6, attributes);
-
-    const QVector3D color(1.0f, 0.82f, 0.16f); // 测量结果统一使用黄色。
-
-    const std::vector<GLfloat> vertices =
+    if (geometry == 0)
     {
-        startScene.x(), startScene.y(), 0.0f, color.x(), color.y(), color.z(),
-        endScene.x(),   endScene.y(),   0.0f, color.x(), color.y(), color.z()
-    };
-
-    const std::vector<GLuint> indices = { 0, 1 };
-
-    geometry->setVertexData(vertices);
-    geometry->setIndexData(indices);
+        viewer->measurementItemManager().remove(item->id());
+        return false;
+    }
 
     if (viewer->resourceManager().adopt(geometry) == InvalidResourceId)
     {
@@ -510,58 +474,28 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
     }
 
     lineLabel->setAnchorWorld(m_planeOrigin);
-    lineLabel->setAnchorSence(QVector2D(0.0f, 0.0f));
+    lineLabel->setAnchorSence(startScene);
     lineLabel->setPixelOffset(QPointF(0.0, 0.0));
     lineLabel->setGeometry(geometry);
     lineLabel->setMaterial(m_resultMaterial);
     lineLabel->setVisible(true);
 
-    const int textPixelSize = 16; // 测量结果统一文本字号。
+    const QString startText = QStringLiteral("P1=%1").arg(pointText(start));
+    const QString endText = QStringLiteral("P2=%1").arg(pointText(end));
+    const QString lengthText = QStringLiteral("L=%1").arg(QString::number(static_cast<double>((end.worldPosition - start.worldPosition).length()), 'f', 3));
 
-    RenderLabel* startLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P1=%1").arg(pointText(start)), textPixelSize);
+    if (createPersistentLabel(viewer, item, m_planeOrigin, startScene, QPointF(5.0, -15.0), startText) == 0)
+        qWarning() << "Length2DMeasurement commitResult failed to create P1 label.";
 
-    if (startLabel != 0)
-    {
-        startLabel->setAnchorWorld(m_planeOrigin);
-        startLabel->setAnchorSence(startScene);
-        startLabel->setPixelOffset(QPointF(5.0, -15.0));
-    }
-    else
-    {
-        qWarning() << "Length2DMeasurement commitResult failed to create P1 Label.";
-    }
+    if (createPersistentLabel(viewer, item, m_planeOrigin, endScene, QPointF(5.0, 5.0), endText) == 0)
+        qWarning() << "Length2DMeasurement commitResult failed to create P2 label.";
 
-    RenderLabel* endLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), QStringLiteral("P2=%1").arg(pointText(end)), textPixelSize);
-
-    if (endLabel != 0)
-    {
-        endLabel->setAnchorWorld(m_planeOrigin);
-        endLabel->setAnchorSence(endScene);
-        endLabel->setPixelOffset(QPointF(5.0, 5.0));
-    }
-    else
-    {
-        qWarning() << "Length2DMeasurement commitResult failed to create P2 Label.";
-    }
-
-    const double length = static_cast<double>((end.worldPosition - start.worldPosition).length());
-    const QString lengthText = QStringLiteral("L=%1").arg(QString::number(length, 'f', 3));
-
-    RenderLabel* lengthLabel = item->createTextLabel(viewer->resourceManager(), viewer->materialManager(), lengthText, textPixelSize);
-
-    if (lengthLabel != 0)
-    {
-        lengthLabel->setAnchorWorld(m_planeOrigin);
-        lengthLabel->setAnchorSence(middleScene);
-        lengthLabel->setPixelOffset(QPointF(5.0, -15.0));
-    }
-    else
-    {
-        qWarning() << "Length2DMeasurement commitResult failed to create Length Label.";
-    }
+    if (createPersistentLabel(viewer, item, m_planeOrigin, middleScene, QPointF(5.0, -15.0), lengthText) == 0)
+        qWarning() << "Length2DMeasurement commitResult failed to create length label.";
 
     return true;
 }
+
 
 QString Length2DMeasurement::pointText(
     const MeasurementPoint& point) const

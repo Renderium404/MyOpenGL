@@ -13,10 +13,9 @@
 #include "MyOpenGL/Material/Material.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Viewer/OpenGLViewerWidget.h"
-
+#include "MyOpenGL/Viewer/Modeling/SimpleModeling.h"
 Length3DMeasurement::Length3DMeasurement()
-    : m_state(MeasurementState::Idle)
-    , m_hasCursorPosition(false)
+    : m_hasCursorPosition(false)
     , m_resultMaterial(0)
 {
 }
@@ -26,14 +25,10 @@ MeasurementType Length3DMeasurement::type() const
     return MeasurementType::Length3D;
 }
 
-MeasurementState Length3DMeasurement::state() const
-{
-    return m_state;
-}
 
 void Length3DMeasurement::reset()
 {
-    m_state = MeasurementState::Idle;
+    setState(MeasurementState::Idle);
 
     m_startPoint = MeasurementPoint();
     m_endPoint = MeasurementPoint();
@@ -65,17 +60,17 @@ bool Length3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEven
 
     m_currentPoint = point;
 
-    if (m_state == MeasurementState::Idle || m_state == MeasurementState::Finished)
+    if (state() == MeasurementState::Idle || state() == MeasurementState::Finished)
     {
         m_startPoint = point;
         m_endPoint = MeasurementPoint();
-        m_state = MeasurementState::Collecting;
+        setState(MeasurementState::Collecting );
 
         viewer->update();
         return true;
     }
 
-    if (m_state == MeasurementState::Collecting)
+    if (state() == MeasurementState::Collecting)
     {
         if (!commitResult(viewer, m_startPoint, point))
         {
@@ -85,7 +80,7 @@ bool Length3DMeasurement::mousePressEvent(OpenGLViewerWidget* viewer, QMouseEven
         }
 
         m_endPoint = point;
-        m_state = MeasurementState::Finished;
+        setState(MeasurementState::Finished );
 
         viewer->update();
         return true;
@@ -120,29 +115,16 @@ bool Length3DMeasurement::mouseReleaseEvent(OpenGLViewerWidget* viewer, QMouseEv
 
     return true;
 }
-
-bool Length3DMeasurement::keyPressEvent(OpenGLViewerWidget* viewer, QKeyEvent* event)
-{
-    if (viewer == 0 || event == 0)
-        return false;
-
-    if (event->key() == Qt::Key_Escape)
-    {
-        reset();
-        viewer->update();
-    }
-
-    return true;
-}
-
 void Length3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& painter) const
 {
     if (viewer == 0)
         return;
 
-    const QColor pointColor(255, 210, 40);
+    const QVector4D& color = lineColor();
+    const QColor pointColor = QColor::fromRgbF(color.x(), color.y(), color.z(), color.w());
 
-    if (m_state == MeasurementState::Idle)
+
+    if (state() == MeasurementState::Idle)
     {
         if (!m_hasCursorPosition)
             return;
@@ -165,7 +147,7 @@ void Length3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
         return;
     }
 
-    if (m_state == MeasurementState::Finished)
+    if (state() == MeasurementState::Finished)
     {
         if (!m_hasCursorPosition)
             return;
@@ -188,7 +170,7 @@ void Length3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
         return;
     }
 
-    if (m_state != MeasurementState::Collecting || !m_startPoint.valid)
+    if (state() != MeasurementState::Collecting || !m_startPoint.valid)
         return;
 
     QPointF startPosition;
@@ -207,7 +189,7 @@ void Length3DMeasurement::drawOverlay(OpenGLViewerWidget* viewer, QPainter& pain
     }
 
     QPen linePen(pointColor);
-    linePen.setWidth(2);
+    linePen.setWidthF(lineWidth());
     linePen.setStyle(Qt::DashLine);
 
     painter.setPen(linePen);
@@ -287,81 +269,43 @@ bool Length3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
     const QVector3D& p1 = start.worldPosition;
     const QVector3D& p2 = end.worldPosition;
 
-    BufferGeometry* geometry = new BufferGeometry("MeasurementLength3DResult", BufferUsage::Static, RenderType::Lines);
-
-    std::vector<GeometryVertexAttribute> attributes;
-
-    GeometryVertexAttribute position;
-    position.location = GeometryAttribute::Position;
-    position.componentCount = 3;
-    position.valueOffset = 0;
-    attributes.push_back(position);
-
-    GeometryVertexAttribute colorAttribute;
-    colorAttribute.location = GeometryAttribute::Color;
-    colorAttribute.componentCount = 3;
-    colorAttribute.valueOffset = 3;
-    attributes.push_back(colorAttribute);
-
-    geometry->setVertexLayout(6, attributes);
-
-    const QVector3D color(1.0f, 0.82f, 0.16f);
-
-    const std::vector<GLfloat> vertices =
-    {
-        p1.x(), p1.y(), p1.z(), color.x(), color.y(), color.z(),
-        p2.x(), p2.y(), p2.z(), color.x(), color.y(), color.z()
-    };
-
-    const std::vector<GLuint> indices = { 0, 1 };
-
-    geometry->setVertexData(vertices);
-    geometry->setIndexData(indices);
-
-    if (viewer->resourceManager().adopt(geometry) == InvalidResourceId)
-    {
-        delete geometry;
-        return false;
-    }
-
     RenderItem* item = viewer->measurementItemManager().createItem("MeasurementLength3DResult");
 
     if (item == 0)
-    {
-        viewer->resourceManager().remove(geometry->id());
         return false;
-    }
 
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
 
-    RenderPart* part = item->createPart();
+    const QVector4D& measurementColor = lineColor();
+    const QVector3D geometryColor(measurementColor.x(), measurementColor.y(), measurementColor.z());
 
-    if (part == 0)
+    BufferGeometry* geometry = SimpleModeling::createLine("MeasurementLength3DLine", p1, p2, geometryColor, lineWidth());
+
+    if (geometry == 0 || viewer->resourceManager().adopt(geometry) == InvalidResourceId)
     {
+        delete geometry;
         viewer->measurementItemManager().remove(item->id());
-        viewer->resourceManager().remove(geometry->id());
         return false;
     }
 
-    part->setGeometry(geometry);
+    RenderPart* part = item->createPart();
 
-    if (createPersistentLabel(viewer, item, p1, QPointF(5.0, -15.0), QStringLiteral("P1=%1").arg(pointText(start))) == 0)
-        qWarning() << "Length3DMeasurement commitResult failed to create P1 Label.";
+    if (part != 0)
+        part->setGeometry(geometry);
 
-    if (createPersistentLabel(viewer, item, p2, QPointF(5.0, 5.0), QStringLiteral("P2=%1").arg(pointText(end))) == 0)
-        qWarning() << "Length3DMeasurement commitResult failed to create P2 Label.";
+    const QVector2D sceneAnchor(0.0f, 0.0f);
+
+    createPersistentLabel(viewer, item, p1, sceneAnchor, QPointF(5.0, -15.0), QStringLiteral("P1=%1").arg(pointText(start)));
+    createPersistentLabel(viewer, item, p2, sceneAnchor, QPointF(5.0, 5.0), QStringLiteral("P2=%1").arg(pointText(end)));
 
     const float length = (p2 - p1).length();
-    const QString lengthText = QStringLiteral("L=%1").arg(QString::number(length, 'f', 3));
     const QVector3D middle = (p1 + p2) * 0.5f;
 
-    if (createPersistentLabel(viewer, item, middle, QPointF(5.0, -15.0), lengthText) == 0)
-        qWarning() << "Length3DMeasurement commitResult failed to create Length Label.";
+    createPersistentLabel(viewer, item, middle, sceneAnchor, QPointF(5.0, -15.0), QStringLiteral("L=%1").arg(QString::number(length, 'f', 3)));
 
     return true;
 }
-
 QString Length3DMeasurement::pointText(const MeasurementPoint& point) const
 {
     if (!point.valid)

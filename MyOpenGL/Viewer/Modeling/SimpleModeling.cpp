@@ -7,7 +7,7 @@
 
 #include <cmath>
 #include <vector>
-
+#include <QQuaternion>
 namespace
 {
 const float Pi = 3.14159265358979323846f;
@@ -110,7 +110,234 @@ bool validSideCount(int sideCount)
     return sideCount >= 3;
 }
 }
+/// Line
 
+BufferGeometry* SimpleModeling::createLine(const QString& name, const QVector3D& start, const QVector3D& end, const QVector3D& color, float lineWidth)
+{
+    if ((end - start).lengthSquared() <= 1.0e-12f)
+    {
+        qWarning() << "SimpleModeling createLine failed: start and end are too close.";
+        return 0;
+    }
+
+    if (lineWidth <= 0.0f)
+    {
+        qWarning() << "SimpleModeling createLine failed: lineWidth must be greater than zero.";
+        return 0;
+    }
+
+    BufferGeometry* geometry = new BufferGeometry(name, BufferUsage::Static, RenderType::Lines);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = 0;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute colorAttribute;
+    colorAttribute.location = GeometryAttribute::Color;
+    colorAttribute.componentCount = 3;
+    colorAttribute.valueOffset = 3;
+    attributes.push_back(colorAttribute);
+
+    geometry->setVertexLayout(6, attributes);
+
+    const std::vector<GLfloat> vertices =
+    {
+        start.x(), start.y(), start.z(), color.x(), color.y(), color.z(),
+        end.x(),   end.y(),   end.z(),   color.x(), color.y(), color.z()
+    };
+
+    const std::vector<GLuint> indices =
+    {
+        0, 1
+    };
+
+    geometry->setVertexData(vertices);
+    geometry->setIndexData(indices);
+    geometry->setLineWidth(lineWidth);
+
+    return geometry;
+}
+
+/// LineStrip
+
+BufferGeometry* SimpleModeling::createLineStrip(const QString& name, const std::vector<QVector3D>& points, const QVector3D& color, float lineWidth)
+{
+    if (points.size() < 2)
+    {
+        qWarning() << "SimpleModeling createLineStrip failed: at least two points are required.";
+        return 0;
+    }
+
+    if (lineWidth <= 0.0f)
+    {
+        qWarning() << "SimpleModeling createLineStrip failed: lineWidth must be greater than zero.";
+        return 0;
+    }
+
+    BufferGeometry* geometry = new BufferGeometry(name, BufferUsage::Static, RenderType::LineStrip);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = 0;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute colorAttribute;
+    colorAttribute.location = GeometryAttribute::Color;
+    colorAttribute.componentCount = 3;
+    colorAttribute.valueOffset = 3;
+    attributes.push_back(colorAttribute);
+
+    geometry->setVertexLayout(6, attributes);
+
+    const int valuesPerVertex = 6; // position.xyz + color.rgb。
+    std::vector<GLfloat> vertices;
+    std::vector<GLuint> indices;
+
+    vertices.reserve(points.size() * valuesPerVertex);
+    indices.reserve(points.size());
+
+    for (std::size_t i = 0; i < points.size(); ++i)
+    {
+        const QVector3D& point = points[i];
+
+        vertices.push_back(point.x());
+        vertices.push_back(point.y());
+        vertices.push_back(point.z());
+
+        vertices.push_back(color.x());
+        vertices.push_back(color.y());
+        vertices.push_back(color.z());
+
+        indices.push_back(static_cast<GLuint>(i));
+    }
+
+    geometry->setVertexData(vertices);
+    geometry->setIndexData(indices);
+    geometry->setLineWidth(lineWidth);
+
+    return geometry;
+}
+
+/// Lines
+
+BufferGeometry* SimpleModeling::createLines(const QString& name, const std::vector<QVector3D>& points, const QVector3D& color, float lineWidth)
+{
+    if (points.size() < 2 || points.size() % 2 != 0)
+    {
+        qWarning() << "SimpleModeling createLines failed: points must contain pairs of line endpoints.";
+        return 0;
+    }
+
+    if (lineWidth <= 0.0f)
+    {
+        qWarning() << "SimpleModeling createLines failed: lineWidth must be greater than zero.";
+        return 0;
+    }
+
+    BufferGeometry* geometry = new BufferGeometry(name, BufferUsage::Static, RenderType::Lines);
+
+    std::vector<GeometryVertexAttribute> attributes;
+
+    GeometryVertexAttribute position;
+    position.location = GeometryAttribute::Position;
+    position.componentCount = 3;
+    position.valueOffset = 0;
+    attributes.push_back(position);
+
+    GeometryVertexAttribute colorAttribute;
+    colorAttribute.location = GeometryAttribute::Color;
+    colorAttribute.componentCount = 3;
+    colorAttribute.valueOffset = 3;
+    attributes.push_back(colorAttribute);
+
+    geometry->setVertexLayout(6, attributes);
+
+    const int valuesPerVertex = 6; // position.xyz + color.rgb。
+    std::vector<GLfloat> vertices;
+    std::vector<GLuint> indices;
+
+    vertices.reserve(points.size() * valuesPerVertex);
+    indices.reserve(points.size());
+
+    for (std::size_t i = 0; i < points.size(); ++i)
+    {
+        const QVector3D& point = points[i];
+
+        vertices.push_back(point.x());
+        vertices.push_back(point.y());
+        vertices.push_back(point.z());
+
+        vertices.push_back(color.x());
+        vertices.push_back(color.y());
+        vertices.push_back(color.z());
+
+        indices.push_back(static_cast<GLuint>(i));
+    }
+
+    geometry->setVertexData(vertices);
+    geometry->setIndexData(indices);
+    geometry->setLineWidth(lineWidth);
+
+    return geometry;
+}
+
+BufferGeometry* SimpleModeling::createArc(const QString& name, const QVector3D& center, const QVector3D& startDirection, const QVector3D& endDirection, float radius, const QVector3D& color, float lineWidth, int segments)
+{
+    if (startDirection.lengthSquared() <= 1.0e-12f || endDirection.lengthSquared() <= 1.0e-12f || radius <= 0.0f || lineWidth <= 0.0f || segments < 2)
+    {
+        qWarning() << "SimpleModeling createArc failed: invalid parameters.";
+        return 0;
+    }
+
+    const QVector3D start = startDirection.normalized();
+    const QVector3D end = endDirection.normalized();
+
+    float cosine = QVector3D::dotProduct(start, end);
+    cosine = qBound(-1.0f, cosine, 1.0f);
+
+    const float angle = std::acos(cosine);
+
+    if (angle <= 1.0e-6f)
+        return 0;
+
+    QVector3D axis = QVector3D::crossProduct(start, end);
+
+    /// 180 度时两个方向叉积接近零，选择一个与起始方向垂直的旋转轴。
+    if (axis.lengthSquared() <= 1.0e-12f)
+    {
+        const QVector3D reference = std::fabs(start.y()) < 0.9f ? QVector3D(0.0f, 1.0f, 0.0f) : QVector3D(1.0f, 0.0f, 0.0f);
+        axis = QVector3D::crossProduct(start, reference);
+    }
+
+    if (axis.lengthSquared() <= 1.0e-12f)
+        return 0;
+
+    axis.normalize();
+
+    const float radiansToDegrees = 57.29577951308232f; // QQuaternion 使用角度制。
+    const float angleDegrees = angle * radiansToDegrees;
+
+    std::vector<QVector3D> points;
+    points.reserve(static_cast<std::size_t>(segments + 1));
+
+    for (int i = 0; i <= segments; ++i)
+    {
+        const float t = static_cast<float>(i) / static_cast<float>(segments);
+        const QQuaternion rotation = QQuaternion::fromAxisAndAngle(axis, angleDegrees * t);
+        const QVector3D direction = rotation.rotatedVector(start);
+
+        points.push_back(center + direction * radius);
+    }
+
+    return createLineStrip(name, points, color, lineWidth);
+}
 /// Sphere
 
 BufferGeometry* SimpleModeling::createSphere(const QString& name, float radius, int segments, int rings)

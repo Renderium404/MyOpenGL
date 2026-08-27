@@ -10,8 +10,6 @@ add_library(MyOpenGLCore STATIC
     Resource/GeometryIterator.h
     Resource/BufferGeometry.cpp
     Resource/BufferGeometry.h
-    Resource/CurveResource.cpp
-    Resource/CurveResource.h
     Resource/ExternalGeometryData.h
     Resource/ExternalGeometryDataSource.h
     Resource/ExternalGeometry.cpp
