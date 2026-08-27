@@ -32,6 +32,11 @@ add_sandbox_test(TestCameraViewer
     TestCameraViewer.cpp
 )
 
+# Billboard Label 测试。
+add_sandbox_test(TestBillboardLabel
+    TestCameraViewer_BillboardLabel.cpp
+)
+
 # Renderer 独立测试。
 add_sandbox_test(TestRenderer
     TestRenderer.cpp
