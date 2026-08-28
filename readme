@@ -1,32 +1,395 @@
-                     CPU
-                      │
-        ┌─────────────┼─────────────┐
-        │             │             │
-        ▼             ▼             ▼
-   vertices[]     QMatrix4x4       PNG
-        │             │             │
-        ▼             │             ▼
-       VBO            │           QImage
-        │             │             │
-        │             │             ▼
-        │             │          Texture
-        │             │             │
-        ▼             ▼             │
-       VAO         Uniform          │
-        │             │             │
-        └──────┬──────┘             │
-               ▼                    │
-         Vertex Shader              │
-               │                    │
-               ▼                    │
-         Rasterization              │
-               │                    │
-               └──────────┬─────────┘
-                          ▼
-                   Fragment Shader
-                          │
-                          ▼
-                    Framebuffer
-                          │
-                          ▼
-                     QOpenGLWidget
+
+模型坐标系 Model  Space：
+      - 模型坐标系是建立在世界坐标系上的相对坐标系
+      - 所有的建模语义均基于模型坐标系
+
+世界坐标系 World Space:
+      - 世界坐标系是整个三维场景的公共绝对参考坐标系。
+      - 模型坐标系和相机坐标系都建立在世界坐标系之上。
+
+            
+相机坐标系 View Space：
+      - 相机坐标系是建立在世界坐标系上的相对坐标系
+      - 相机平面为xOy平面
+      - 可以把 Camera 想象成观察者：
+      - Camera Position = 原点 O
+      - +X = 观察者右侧
+      - +Y = 观察者头顶方向
+      - -Z = 观察者前方
+
+裁剪空间 Clip Space:
+      - 裁剪坐标系中仅包含近视界和远视界中间的物体
+      - 这里有正交和透视的区别
+
+归一化空间 NDC Space：
+      - 一个标准的 [−1,1]^3 立方体
+
+像素空间 Screen  Space：
+      - 即一个 左下角为P_min,长宽为 Width*Height 的矩形屏幕，对应相机平面
+      - 深度范围（通常用于Z缓冲）为 [MinZ,MaxZ],通常为[0,1]
+
+      
+MVP标准管线模型:
+M(Model) 模型矩阵：将基于模型坐标系的点转化到基于世界坐标系的点
+V(View) 视图矩阵：将基于世界坐标系的点转化到基于相机坐标系的点
+P(Projection) 投影矩阵：将基于相机坐标系的点转化到裁剪空间，负责定义可视范围（近大远小的透视效果，或者无缩放的方形效果）
+
+数学关系
+P_world = M * P_model
+P_view  = V * P_world
+P_clip  = P * P_view    
+
+从裁剪空间转化到归一化空间(这一步又叫透视除法)
+P_ndc = P_clip / P_clip.w
+      -正交投影：变换后 P_clip.w = 1，所以透视除法不影响大小（无近大远小）。
+      -透视投影：变换后 P_clip.w = -Z_view（即相机空间深度的负值），所以远处的物体除以一个更大的 w，x和y被压缩得更小，实现了近大远小。
+其中P(x,y,z,w)
+
+从归一化空间到像素空间
+P_screen.x=(P_ndc.x+1)*Width/2+ P_min.x
+P_screen.y=(P_ndc.y+1)*Height/2+ P_min.y
+P_screen.z=(P_ndc.z+1)*(MaxZ-MinZ)/2+ MinZ
+
+
+Projection 投影矩阵的两种构建：
+
+1. 正交投影 Orthographic Projection
+
+通过指定一个长方体可视范围：
+
+Left   = l
+Right  = r
+Bottom = b
+Top    = t
+Near   = n
+Far    = f
+
+构建正交投影矩阵：
+
+P_ortho =
+| 2/(r-l)      0            0          -(r+l)/(r-l) |
+|    0      2/(t-b)         0          -(t+b)/(t-b) |
+|    0         0        -2/(f-n)       -(f+n)/(f-n) |
+|    0         0            0                1       |
+
+特点：
+
+```
+  - 可视空间是长方体。
+  - P_clip.w = 1。
+  - 不产生近大远小。
+```
+
+2. 透视投影 Perspective Projection
+
+通常通过以下参数构建：
+
+FOV    = 垂直视野角
+Aspect = Width / Height
+Near   = n
+Far    = f
+
+令：
+
+q = 1 / tan(FOV / 2)
+
+则透视投影矩阵：
+
+P_perspective =
+| q/Aspect    0          0               0      |
+|    0        q          0               0      |
+|    0        0     -(f+n)/(f-n)    -2fn/(f-n) |
+|    0        0         -1               0      |
+
+特点：
+
+```
+  - 可视空间是视锥体。
+  - P_clip.w = -Z_view。
+  - 透视除法后产生近大远小。
+```
+
+简单理解：
+
+Orthographic：
+一个长方体直接映射到 NDC。
+
+Perspective：
+一个视锥体经过透视除法后映射到 NDC。
+
+
+
+
+M(Model) 模型矩阵的四种构建
+
+一个模型坐标系可以表示为：
+M =
+| Xx  Yx  Zx  Px |
+| Xy  Yy  Zy  Py |
+| Xz  Yz  Zz  Pz |
+| 0   0   0   1  |
+其中：
+P = 模型原点在世界坐标系中的位置
+X、Y、Z = 模型三个局部坐标轴在世界坐标系中的方向和尺度
+
+
+
+
+用WCS表示世界坐标系，用WCS.X,WCS.Y,WCS.Z表示三个轴
+用VIEW表示相机坐标系，用VIEW.X,VIEW.Y，VIEW.Z表示三个轴
+用SCREEN表示像素空间，用SCREEN.X,SCREEN.Y表示两个轴
+
+模型尺度有场景尺度和像素尺度两种尺度
+      场景尺度
+       -世界尺度不随相机变化，但投影后的屏幕尺度会随相机变化。
+       - 使用世界空间尺度，记作 ss。
+       - 当 1 个模型单位对应 1 个世界单位时，ss = 1。
+      像素尺度
+       -屏幕尺度不随相机变化，但对应的世界尺度 sp 会随相机和投影变化。
+       -像素尺度受投影矩阵影响，记作sp
+       -透视投影下，可以用垂直方向定义，d = -Z_view，sp = 2 * d * tan(FOV / 2) / Height
+       -正交投影下，sp = (Top - Bottom) / Height
+
+模型方向有跟随世界和跟随相机两种方向
+      跟随世界时，模型的坐标系方向始终与世界坐标系(WCS)保持一致
+      跟随相机时，模型的坐标系方向始终与相机坐标系(VIEW)保持一致
+
+1. 标准三维模型(场景尺度+跟随世界)
+X = ss * WCS.X
+Y = ss * WCS.Y
+Z = ss * WCS.Z
+2. 点云模型(场景尺度+跟随相机)
+X = ss * VIEW.X
+Y = ss * VIEW.Y
+Z = ss * VIEW.Z
+3. 标签模型(像素尺度+跟随相机)
+X = sp * VIEW.X
+Y = sp * VIEW.Y
+Z = sp * VIEW.Z
+4. 工具模型(像素尺度+跟随世界)
+X = sp * WCS.X
+Y = sp * WCS.Y
+Z = sp * WCS.Z
+
+
+Anchor3D：三维锚点,模型在世界坐标系的三维偏移
+Anchor2D：二维锚点,模型在相机平面的二维偏移
+AnchorPixel：像素锚点，模型在像素空间的二维偏移
+
+P = Anchor3D
+  + Anchor2D.x * VIEW.X
+  + Anchor2D.y * VIEW.Y
+  + AnchorPixel.x * Kx * VIEW.X
+  + AnchorPixel.y * Ky * VIEW.Y
+
+其中 Kx、Ky 表示像素空间到世界空间的尺度转换：
+
+Kx：SCREEN.X 方向上 1 Pixel 对应的世界长度
+Ky：SCREEN.Y 方向上 1 Pixel 对应的世界长度
+透视投影：
+d = -Z_view
+Kx = 2 * d * tan(FOV / 2) * Aspect / Width
+Ky = 2 * d * tan(FOV / 2) / Height
+正交投影：
+Kx = (Right - Left) / Width
+Ky = (Top - Bottom) / Height
+当：
+Aspect = Width / Height
+且投影没有额外的非均匀缩放时：
+Kx = Ky = sp
+因此像素尺度模型可以统一写为：
+X = sp * Axis.X
+Y = sp * Axis.Y
+Z = sp * Axis.Z
+
+其中 Axis 根据模型方向选择 WCS 或 VIEW。
+
+
+V(View) 视图矩阵的构建
+
+Camera 由位置和方向定义：
+
+C = Camera 在世界坐标系中的位置
+F = Camera Forward，观察方向
+U = Camera Up，头顶方向
+
+由于相机沿自身 -Z 方向观察，因此构造相机坐标轴：
+
+VIEW.Z = -normalize(F)
+
+VIEW.X = normalize(U × VIEW.Z)
+
+VIEW.Y = VIEW.Z × VIEW.X
+
+于是得到相机在世界坐标系中的三个轴：
+
+VIEW.X = Right
+VIEW.Y = Up
+-VIEW.Z = Forward
+
+View Matrix 的作用是将世界坐标转换到相机坐标：
+
+P_view = V * P_world
+
+其矩阵为：
+
+V =
+| VIEW.X.x  VIEW.X.y  VIEW.X.z  -dot(VIEW.X,C) |
+| VIEW.Y.x  VIEW.Y.y  VIEW.Y.z  -dot(VIEW.Y,C) |
+| VIEW.Z.x  VIEW.Z.y  VIEW.Z.z  -dot(VIEW.Z,C) |
+|     0         0         0              1       |
+
+也可以理解为：
+
+如果 Camera 在世界坐标系中的变换矩阵为：
+
+C_world =
+| VIEW.X.x  VIEW.Y.x  VIEW.Z.x  C.x |
+| VIEW.X.y  VIEW.Y.y  VIEW.Z.y  C.y |
+| VIEW.X.z  VIEW.Y.z  VIEW.Z.z  C.z |
+|     0         0         0       1 |
+
+那么：
+
+V = C_world^-1
+
+
+应用：
+1.如何构造一个视图导航
+      方法一：工具模型+标准视图+正交投影
+            令三维锚点和二维锚点为0，修改像素锚点，即可在屏幕任意位置构造导航
+      方法二：标准模型+标准视图+正交投影
+            令三维锚点和二维锚点和像素锚点为0，修改Screen Space的矩形位置
+2.如何构造一个跟随指定世界坐标的信息标签
+      标签模型+标准视图+任意投影(标签模型与 Projection 类型解耦，)
+      令三维锚点为世界坐标，二维锚点为0，像素锚点向右上角偏移
+3. 如何构造一个跟随世界坐标的固定像素标记
+   标签模型 + 标准视图 + 任意投影
+   Anchor3D = 指定世界坐标
+   Anchor2D = 0
+   AnchorPixel = 0
+4. 如何构造一个始终朝向相机的场景尺寸平面
+
+   点云模型 + 标准视图 + 任意投影
+
+   Anchor3D = 指定世界坐标
+   Anchor2D = 0
+   AnchorPixel = 0
+   例如：
+   Billboard
+   二维测量线
+   二维测量圆弧
+
+5. 如何构造一个固定像素大小的三维坐标系
+   工具模型 + 标准视图 + 任意投影
+   Anchor3D = 指定世界坐标
+   Anchor2D = 0
+   AnchorPixel = 0
+   例如：
+   Coordinate System
+   3D Gizmo
+   Rotation Handle
+
+6. 如何构造一个带场景偏移的信息标注
+
+   标签模型 + 标准视图 + 任意投影
+
+   Anchor3D = 指定世界坐标
+   Anchor2D != 0
+   AnchorPixel = 0
+
+   则：
+
+   P = Anchor3D
+   + Anchor2D.x * VIEW.X
+   + Anchor2D.y * VIEW.Y
+
+   Anchor3D 决定标注跟随的世界位置，
+   Anchor2D 决定标注在相机平面上的场景尺度偏移。
+
+   与 AnchorPixel 不同：
+
+   Anchor2D 的屏幕距离会随 Projection 和 Camera 变化，
+   AnchorPixel 的屏幕距离保持不变。
+
+7. 如何构造一个独立的小视图
+
+   标准模型 + 独立视图 + 独立投影 + 独立 Screen Space
+
+   Model 使用普通世界坐标。
+   View 使用独立 Camera。
+   Projection 使用独立投影。
+   Screen Space 使用屏幕中的一个子矩形。
+
+   例如：
+
+   MiniMap
+   View Navigation
+   CAD 多视图
+
+   其本质是：
+
+   P_screen =
+   ScreenTransform(
+   P_independent *
+   V_independent *
+   M *
+   P_model
+   )
+
+8. 如何构造镜像视图或第二观察视图
+
+   标准模型 + 独立视图 + 任意投影
+
+   Model 不发生特殊变化，
+   只重新构造 Camera：
+
+   C' = 新 Camera Position
+   F' = 新 Camera Forward
+   U' = 新 Camera Up
+
+   得到：
+
+   V'
+
+   然后：
+
+   P_clip = P * V' * M * P_model
+
+   因此同一个世界可以从另一个观察坐标系重新投影。
+
+   例如：
+
+   Mirror View
+   Rear View
+   Secondary View
+   CAD 多相机观察
+
+9. 如何构造二维测量结果
+
+   点云模型 + 标准视图 + 任意投影
+
+   Anchor3D = 测量平面的世界基准点
+   Anchor2D = 测量点在相机平面上的二维坐标
+   AnchorPixel = 0
+
+   位置：
+
+   P = Anchor3D
+   + Anchor2D.x * VIEW.X
+   + Anchor2D.y * VIEW.Y
+
+   模型方向跟随 VIEW，
+   尺度使用 ss。
+
+   因此二维测量 Geometry 始终位于相机平面方向，
+   但仍然具有真实的场景尺度。
+
+案例	模型类型	核心锚点	投影	典型领域
+1. 视图导航（分屏）	工具 / 标准	Pixel / Viewport	正交	游戏小地图
+2. 信息标签（3D 头顶血条）	标签	Anchor3D + Pixel	任意	MMORPG、AR
+3. FPS 武器	点云	Anchor3D（相对相机）	透视	射击游戏
+4. 任务指引箭头	标签	Anchor3D + Pixel	任意	开放世界导航
+5. 恒定线宽网格	工具	Anchor3D = 原点	透视/正交	CAD、3D 编辑器
+6. 固定 HUD 图标	标签	Pixel 绝对定位	正交	UI 渲染
+7. 3D 测量标注	标准+标签混合	Anchor3D + 2D + Pixel	透视	工业检测、医疗

@@ -130,9 +130,11 @@ private:
 
     /// Item 渲染
     bool drawItems(const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
-    /// 绘制 Item 的世界空间 RenderPart。
+    /// 根据 Item / Part 的空间和深度语义构造最终 RenderState。
+    bool buildItemPartRenderState(const RenderItem* item, const RenderPart* part, const RenderContext& context, const QPointF& pixelOffset, RenderState& state) const;
+    /// 绘制 Item 的 RenderPart。
     bool drawItemParts(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights);
-    /// 绘制 Item 的持久化屏幕 Label。
+    /// 绘制 Item 的 RenderLabel。
     bool drawItemLabels(const RenderItem* item, const RenderContext& context);
     /// Camera Navigation
     bool navigationAnchor(QVector3D& anchor) const;

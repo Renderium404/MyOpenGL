@@ -276,6 +276,7 @@ bool Length3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
 
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
+    item->setDepthWriteEnabled(false);
 
     const QVector4D& measurementColor = lineColor();
     const QVector3D geometryColor(measurementColor.x(), measurementColor.y(), measurementColor.z());

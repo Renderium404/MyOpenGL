@@ -48,6 +48,7 @@ class RenderItem
 {
 public:
     /// 基本信息
+
     RenderItemId id() const{return m_id;}
     const QString& name() const{return m_name;}
     QString type() const;
@@ -62,19 +63,16 @@ public:
     void clearParts();
     /// 返回当前 RenderPart 数量。
     int partCount() const;
-    /// 判断指定 RenderPartId 是否属于当前 Item。
+    /// 判断指定 RenderPartId 是否属于当前 Item 的普通 Part。
     bool containsPart(RenderPartId id) const;
-
     /// 按创建顺序访问 RenderPart，索引非法时返回 0。
     RenderPart* partAt(int index);
     const RenderPart* partAt(int index) const;
-
-    /// 按稳定 RenderPartId 查询 RenderPart，不存在时返回 0。
+    /// 按稳定 RenderPartId 查询普通 RenderPart，不存在时返回 0。
     RenderPart* part(RenderPartId id);
     const RenderPart* part(RenderPartId id) const;
 
     /// Label 管理
-
     /// 创建并接管一个空 RenderLabel。
     RenderLabel* createLabel();
     /// 快速创建文本 Label，并自动创建其 Texture、Geometry 和 Material 资源。
@@ -85,13 +83,11 @@ public:
     void clearLabels();
     /// 返回当前 RenderLabel 数量。
     int labelCount() const;
-    /// 判断指定 RenderLabelId 是否属于当前 Item。
+    /// 判断指定 RenderLabelId 是否属于当前 Item 的 Label。
     bool containsLabel(RenderLabelId id) const;
-
     /// 按创建顺序访问 RenderLabel，索引非法时返回 0。
     RenderLabel* labelAt(int index);
     const RenderLabel* labelAt(int index) const;
-
     /// 按稳定 RenderLabelId 查询 RenderLabel，不存在时返回 0。
     RenderLabel* label(RenderLabelId id);
     const RenderLabel* label(RenderLabelId id) const;
@@ -100,16 +96,20 @@ public:
 
     /// 应用一个 RenderPart 更新。
     bool applyPartUpdate(const RenderPartUpdate& update);
+
     /// 批量应用 RenderPart 更新，并在修改前验证全部 Update。
     bool applyPartUpdates(const std::vector<RenderPartUpdate>& updates);
 
     /// Material
-    /// 返回当前 Item 使用的 Material，RenderItem 不拥有该对象。
+
+    /// 返回当前 Item 使用的默认 Material，RenderItem 不拥有该对象。
     const Material* material() const;
-    /// 设置当前 Item 使用的 Material，RenderItem 不接管其生命周期。
+
+    /// 设置当前 Item 使用的默认 Material，RenderItem 不接管其生命周期。
     void setMaterial(const Material* material);
 
     /// Transform
+
     /// 返回 Item Transform。
     Transform& transform();
     const Transform& transform() const;
@@ -117,8 +117,10 @@ public:
     /// Bounds
 
     /// 判断当前 Item 是否具有有效 LocalBounds。
+    /// 只统计标准 RenderPart。
     bool hasLocalBounds() const;
-    /// 返回全部 RenderPart LocalBounds 的 Item Local Space 聚合结果。
+
+    /// 返回全部标准 RenderPart 在 Item Local Space 中的聚合 Bounds。
     const AxisAlignedBoundingBox& localBounds() const;
 
     /// 返回当前 Item 的 World Space AABB。
@@ -126,14 +128,17 @@ public:
 
     /// Interaction
 
-    /// 对当前 Item 执行默认精确射线命中测试。
+    /// 对当前 Item 的标准 RenderPart 执行默认精确射线命中测试。
     bool raycast(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
-    /// 对 RenderPart LocalBounds 执行射线命中测试。
+
+    /// 对标准 RenderPart LocalBounds 执行射线命中测试。
     bool raycastBox(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
-    /// 先进行 Bounds 粗筛，再执行 Triangle 精确命中测试。
+
+    /// 先进行 Bounds 粗筛，再执行标准 RenderPart Triangle 精确命中测试。
     bool raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDirection, RenderItemRayHit& hit) const;
 
     /// Display
+
     /// 返回或设置当前 Item 是否参与绘制。
     bool isVisible() const;
     void setVisible(bool visible);
@@ -145,9 +150,13 @@ public:
     const QVector4D& edgeColor() const;
     void setEdgeColor(const QVector4D& color);
 
-    /// 返回或设置当前 Item 是否启用深度测试。
+    /// 返回或设置当前 Item 默认是否启用深度测试。
     bool depthTestEnabled() const;
     void setDepthTestEnabled(bool enabled);
+
+    /// 返回或设置当前 Item 默认是否写入深度缓冲。
+    bool depthWriteEnabled() const;
+    void setDepthWriteEnabled(bool enabled);
 
 private:
     friend class ItemManager;
@@ -155,43 +164,41 @@ private:
     /// ItemManager 内部接口。
     explicit RenderItem(const QString& name);
     ~RenderItem();
-
     void setId(RenderItemId id)
     {
         m_id = id;
     }
 
     /// ID 分配
-
+    /// 为 RenderPart / RenderLabel 分配统一 ID。
     RenderPartId allocatePartId();
-    RenderLabelId allocateLabelId();
 
     /// Bounds
-
-    /// 根据全部有效 RenderPart LocalBounds 重建聚合缓存。
+    /// 根据全部标准 RenderPart 重建 Item Local Space 聚合 Bounds。
     void rebuildLocalBoundsCache() const;
 
 private:
-    RenderItemId m_id;                                // Item 唯一 ID。
-    QString m_name;                                   // Item 调试名称。
+    RenderItemId m_id;                                  // Item 唯一 ID。
+    QString m_name;                                     // Item 调试名称。
 
-    std::vector<RenderPart*> m_parts;                 // Item 拥有的 RenderPart。
-    std::map<RenderPartId, RenderPart*> m_partsById;  // RenderPartId 查询表。
-    RenderPartId m_nextPartId;                        // 下一个 RenderPartId。
+    std::vector<RenderPart*> m_parts;                   // Item 拥有的普通 RenderPart。
+    std::map<RenderPartId, RenderPart*> m_partsById;    // 普通 RenderPart ID 查询表。
 
-    std::vector<RenderLabel*> m_labels;               // Item 拥有的 RenderLabel。
-    std::map<RenderLabelId, RenderLabel*> m_labelsById; // RenderLabelId 查询表。
-    RenderLabelId m_nextLabelId;                      // 下一个 RenderLabelId。
+    std::vector<RenderLabel*> m_labels;                 // Item 拥有的 RenderLabel。
+    std::map<RenderLabelId, RenderLabel*> m_labelsById; // RenderLabel ID 查询表。
 
-    const Material* m_material;                       // Item Material，不拥有。
-    Transform m_transform;                            // Item Local -> World Transform。
+    RenderPartId m_nextPartId;                          // 下一个 RenderPart / RenderLabel 共用 ID。
 
-    mutable AxisAlignedBoundingBox m_localBoundsCache; // RenderPart LocalBounds 聚合缓存。
+    const Material* m_material;                         // Item 默认 Material，不拥有。
+    Transform m_transform;                              // Item Local -> World Transform。
 
-    bool m_visible;                                   // 是否参与绘制。
-    DisplayMode m_type;                               // Item 整体显示模式。
-    QVector4D m_edgeColor;                            // 边线颜色。
-    bool m_depthTestEnabled;                          // 是否启用深度测试。
+    mutable AxisAlignedBoundingBox m_localBoundsCache;  // 标准 RenderPart 的 Item Local Space 聚合 Bounds。
+
+    bool m_visible;                                     // 是否参与绘制。
+    DisplayMode m_type;                                 // Item 整体显示模式。
+    QVector4D m_edgeColor;                              // 边线颜色。
+    bool m_depthTestEnabled;                            // 默认是否启用深度测试。
+    bool m_depthWriteEnabled;                           // 默认是否写入深度缓冲。
 };
 
 #endif // RENDERITEM_H

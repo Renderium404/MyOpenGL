@@ -669,12 +669,12 @@ private:
                 if (label == 0)
                     continue;
 
-                label->setAnchorWorld(QVector3D(x, y, z));
-                label->setAnchorSence(QVector2D(0.0f, 0.0f));
+                label->setAnchor3D(QVector3D(x, y, z));
+                label->setAnchor2D(QVector2D(0.0f, 0.0f));
                 label->setPixelOffset(QPointF(0.0, 0.0));
                 label->setGeometry(m_billboardSquareGeometry);
                 label->setMaterial(m_billboardMaterial);
-                label->setVisible(true);
+                // label->setVisible(true);
             }
         }
     }

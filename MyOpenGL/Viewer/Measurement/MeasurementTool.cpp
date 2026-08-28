@@ -62,7 +62,7 @@ bool MeasurementTool::setLineWidth(float width)
     m_lineWidth = width;
     return true;
 }
-RenderLabel* MeasurementTool::createPersistentLabel(OpenGLViewerWidget* viewer, RenderItem* item, const QVector3D& anchorWorld, const QVector2D& anchorSence, const QPointF& pixelOffset, const QString& text)
+RenderLabel* MeasurementTool::createPersistentLabel(OpenGLViewerWidget* viewer, RenderItem* item, const QVector3D& anchor3D, const QVector2D& anchor2D, const QPointF& pixelOffset, const QString& text)
 {
     if (viewer == 0 || item == 0 || text.isEmpty())
         return 0;
@@ -74,10 +74,9 @@ RenderLabel* MeasurementTool::createPersistentLabel(OpenGLViewerWidget* viewer, 
     if (label == 0)
         return 0;
 
-    label->setAnchorWorld(anchorWorld);
-    label->setAnchorSence(anchorSence);
+    label->setAnchor3D(anchor3D);
+    label->setAnchor2D(anchor2D);
     label->setPixelOffset(pixelOffset);
-    label->setVisible(true);
 
     return label;
 }

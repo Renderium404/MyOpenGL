@@ -406,6 +406,7 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
+    item->setDepthWriteEnabled(false);
 
     const QVector4D& measurementColor = lineColor();
     const QVector3D geometryColor(measurementColor.x(), measurementColor.y(), measurementColor.z());
@@ -424,16 +425,15 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     if (lineGeometry != 0 && viewer->resourceManager().adopt(lineGeometry) != InvalidResourceId)
     {
-        RenderLabel* lineLabel = item->createLabel();
+        RenderPart* linePart = item->createPart();
 
-        if (lineLabel != 0)
+        if (linePart != 0)
         {
-            lineLabel->setAnchorWorld(m_planeOrigin);
-            lineLabel->setAnchorSence(vertexScene);
-            lineLabel->setPixelOffset(QPointF(0.0, 0.0));
-            lineLabel->setGeometry(lineGeometry);
-            lineLabel->setMaterial(m_resultMaterial);
-            lineLabel->setVisible(true);
+            linePart->setGeometry(lineGeometry);
+            linePart->setAnchor3D(m_planeOrigin);
+            linePart->setAnchor2D(vertexScene);
+            linePart->setFollowCamera(true);
+            linePart->setPixelSize(false);
         }
         else
         {
@@ -459,16 +459,15 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     if (arcGeometry != 0 && viewer->resourceManager().adopt(arcGeometry) != InvalidResourceId)
     {
-        RenderLabel* arcLabel = item->createLabel();
+        RenderPart* arcPart = item->createPart();
 
-        if (arcLabel != 0)
+        if (arcPart != 0)
         {
-            arcLabel->setAnchorWorld(m_planeOrigin);
-            arcLabel->setAnchorSence(vertexScene);
-            arcLabel->setPixelOffset(QPointF(0.0, 0.0));
-            arcLabel->setGeometry(arcGeometry);
-            arcLabel->setMaterial(m_resultMaterial);
-            arcLabel->setVisible(true);
+            arcPart->setGeometry(arcGeometry);
+            arcPart->setAnchor3D(m_planeOrigin);
+            arcPart->setAnchor2D(vertexScene);
+            arcPart->setFollowCamera(true);
+            arcPart->setPixelSize(false);
         }
         else
         {

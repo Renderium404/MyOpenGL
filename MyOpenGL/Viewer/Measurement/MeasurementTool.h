@@ -3,6 +3,7 @@
 
 #include <QPointF>
 #include <QString>
+#include <QVector2D>
 #include <QVector3D>
 #include <QVector4D>
 
@@ -85,10 +86,10 @@ public:
 
 protected:
     /// 创建持久化文本 Label。
-    static RenderLabel* createPersistentLabel(OpenGLViewerWidget* viewer, 
-                                                RenderItem* item, 
-                                                const QVector3D& anchorWorld, 
-                                                const QVector2D& anchorSence, 
+    static RenderLabel* createPersistentLabel(OpenGLViewerWidget* viewer,
+                                                RenderItem* item,
+                                                const QVector3D& anchor3D,
+                                                const QVector2D& anchor2D,
                                                 const QPointF& pixelOffset,
                                                 const QString& text);
     /// 绘制临时 QPainter 文本 Label。

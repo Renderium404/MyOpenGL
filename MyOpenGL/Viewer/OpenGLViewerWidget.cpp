@@ -25,6 +25,54 @@
 #include "MyOpenGL/Resource/Geometry.h"
 #include "MyOpenGL/Resource/Texture.h"
 #include "MyOpenGL/Viewer/Modeling/PrimitiveMeshBuilder.h"
+bool resolvePartState(bool itemState, RenderPartStateMode mode)
+{
+    switch (mode)
+    {
+    case RenderPartStateMode::Inherit:
+        return itemState;
+
+    case RenderPartStateMode::Enabled:
+        return true;
+
+    case RenderPartStateMode::Disabled:
+        return false;
+    }
+
+    return itemState;
+}
+bool calculateWorldUnitsPerPixel(const RenderContext& context, const QVector3D& worldAnchor, const QVector3D& cameraRight, const QVector3D& cameraUp, float& worldPerPixelX, float& worldPerPixelY)
+{
+    const QVector4D anchorClip = context.projection * context.view * QVector4D(worldAnchor, 1.0f);
+    const QVector4D xClip = context.projection * context.view * QVector4D(worldAnchor + cameraRight, 1.0f);
+    const QVector4D yClip = context.projection * context.view * QVector4D(worldAnchor + cameraUp, 1.0f);
+
+    if (anchorClip.w() <= 1.0e-8f || xClip.w() <= 1.0e-8f || yClip.w() <= 1.0e-8f)
+        return false;
+
+    const float anchorPixelX = (anchorClip.x() / anchorClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+    const float anchorPixelY = (anchorClip.y() / anchorClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+
+    const float xPixelX = (xClip.x() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+    const float xPixelY = (xClip.y() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+
+    const float yPixelX = (yClip.x() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
+    const float yPixelY = (yClip.y() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
+
+    const QVector2D xPixelVector(xPixelX - anchorPixelX, xPixelY - anchorPixelY);
+    const QVector2D yPixelVector(yPixelX - anchorPixelX, yPixelY - anchorPixelY);
+
+    const float pixelsPerWorldX = xPixelVector.length();
+    const float pixelsPerWorldY = yPixelVector.length();
+
+    if (pixelsPerWorldX <= 1.0e-8f || pixelsPerWorldY <= 1.0e-8f)
+        return false;
+
+    worldPerPixelX = 1.0f / pixelsPerWorldX;
+    worldPerPixelY = 1.0f / pixelsPerWorldY;
+
+    return true;
+}
 class ViewportOverlayWidget : public QWidget
 {
 public:
@@ -700,64 +748,192 @@ bool OpenGLViewerWidget::drawItems(const ItemManager& itemManager, const RenderC
 
     return true;
 }
+bool OpenGLViewerWidget::buildItemPartRenderState(const RenderItem* item, const RenderPart* part, const RenderContext& context, const QPointF& pixelOffset, RenderState& state) const
+{
+    if (item == 0 || part == 0 || !context.isValid())
+        return false;
 
+    const QMatrix4x4 itemModel = item->transform().matrix();
+
+    const QVector3D cameraForward = context.cameraForward.normalized();
+    const QVector3D cameraUp = context.cameraUp.normalized();
+    const QVector3D cameraRight = QVector3D::crossProduct(cameraForward, cameraUp).normalized();
+    const QVector3D sceneUp = QVector3D::crossProduct(cameraRight, cameraForward).normalized();
+    const QVector3D cameraNormal = QVector3D::crossProduct(cameraRight, sceneUp).normalized();
+
+    if (cameraRight.lengthSquared() <= 1.0e-12f ||sceneUp.lengthSquared() <= 1.0e-12f ||cameraNormal.lengthSquared() <= 1.0e-12f)
+    {
+        return false;
+    }
+
+    /// anchor3D 位于 Item Local Space。
+    QVector3D worldAnchor = (itemModel * QVector4D(part->anchor3D(), 1.0f)).toVector3D();
+
+    /// anchor2D 位于当前 Camera View Plane，并使用 Scene 尺度。
+    worldAnchor += cameraRight * part->anchor2D().x();
+    worldAnchor += sceneUp * part->anchor2D().y();
+
+    float worldPerPixelX = 0.0f;
+    float worldPerPixelY = 0.0f;
+
+    const bool hasPixelOffset = qAbs(pixelOffset.x()) > 1.0e-8 || qAbs(pixelOffset.y()) > 1.0e-8;
+    const bool needPixelScale = part->pixelSize() || hasPixelOffset;
+
+    if (needPixelScale)
+    {
+        if (!calculateWorldUnitsPerPixel(context, worldAnchor, cameraRight, sceneUp, worldPerPixelX, worldPerPixelY))
+            return false;
+    }
+
+    /// RenderLabel 最终 Pixel Offset。
+    /// QPointF 使用屏幕坐标语义：+X 向右，+Y 向下。
+    if (hasPixelOffset)
+    {
+        worldAnchor += cameraRight * static_cast<float>(pixelOffset.x()) * worldPerPixelX;
+        worldAnchor -= sceneUp * static_cast<float>(pixelOffset.y()) * worldPerPixelY;
+    }
+
+    state = RenderState();
+
+    state.view = context.view;
+    state.projection = context.projection;
+    state.viewport = RenderViewport(0, 0, context.viewportWidth, context.viewportHeight);
+
+    state.depthTestEnabled = resolvePartState(item->depthTestEnabled(), part->depthTestMode());
+    state.depthWriteEnabled = resolvePartState(item->depthWriteEnabled(), part->depthWriteMode());
+    state.blendEnabled = false;
+
+    /// 标准模型：
+    ///
+    /// Geometry Local
+    ///     ↓ anchor3D
+    /// Item Local
+    ///     ↓ Item Transform
+    /// World
+    if (!part->followCamera() && !part->pixelSize())
+    {
+        state.model = itemModel;
+        state.model.translate(part->anchor3D());
+
+        /// anchor2D / Pixel Offset 属于 World View Plane 偏移，
+        /// 因此最终直接覆盖 Model Translation。
+        state.model.setColumn(3, QVector4D(worldAnchor, 1.0f));
+
+        return true;
+    }
+
+    QVector3D modelXAxis;
+    QVector3D modelYAxis;
+    QVector3D modelZAxis;
+
+    /// Billboard：
+    /// Geometry 局部方向直接使用 Camera Basis。
+    if (part->followCamera())
+    {
+        float scaleX = 1.0f;
+        float scaleY = 1.0f;
+        float scaleZ = 1.0f;
+
+        if (part->pixelSize())
+        {
+            scaleX = worldPerPixelX;
+            scaleY = worldPerPixelY;
+            scaleZ = (worldPerPixelX + worldPerPixelY) * 0.5f;
+        }
+        else
+        {
+            /// Scene Size Billboard 仍然继承 Item Scale，
+            /// 但不继承 Item Rotation。
+            const float itemScaleX = itemModel.column(0).toVector3D().length();
+            const float itemScaleY = itemModel.column(1).toVector3D().length();
+            const float itemScaleZ = itemModel.column(2).toVector3D().length();
+
+            if (itemScaleX > 1.0e-8f)
+                scaleX = itemScaleX;
+
+            if (itemScaleY > 1.0e-8f)
+                scaleY = itemScaleY;
+
+            if (itemScaleZ > 1.0e-8f)
+                scaleZ = itemScaleZ;
+        }
+
+        modelXAxis = cameraRight * scaleX;
+        modelYAxis = sceneUp * scaleY;
+        modelZAxis = cameraNormal * scaleZ;
+    }
+    else
+    {
+        /// 不跟随 Camera + Pixel Size。
+        ///
+        /// 保持 Item 三维朝向，但忽略 Item Scale，
+        /// Geometry 每个单位按固定 Pixel 尺度解释。
+        modelXAxis = itemModel.column(0).toVector3D();
+        modelYAxis = itemModel.column(1).toVector3D();
+        modelZAxis = itemModel.column(2).toVector3D();
+
+        if (modelXAxis.lengthSquared() <= 1.0e-12f ||
+            modelYAxis.lengthSquared() <= 1.0e-12f ||
+            modelZAxis.lengthSquared() <= 1.0e-12f)
+        {
+            return false;
+        }
+
+        modelXAxis.normalize();
+        modelYAxis.normalize();
+        modelZAxis.normalize();
+
+        const float worldPerPixel = (worldPerPixelX + worldPerPixelY) * 0.5f;
+
+        modelXAxis *= worldPerPixel;
+        modelYAxis *= worldPerPixel;
+        modelZAxis *= worldPerPixel;
+    }
+
+    state.model.setToIdentity();
+
+    state.model.setColumn(0, QVector4D(modelXAxis, 0.0f));
+    state.model.setColumn(1, QVector4D(modelYAxis, 0.0f));
+    state.model.setColumn(2, QVector4D(modelZAxis, 0.0f));
+    state.model.setColumn(3, QVector4D(worldAnchor, 1.0f));
+
+    return true;
+}
 bool OpenGLViewerWidget::drawItemParts(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights)
 {
     if (item == 0)
         return false;
-
     if (!item->isVisible() || item->partCount() == 0)
         return true;
-
-    /// 整个 Item 的 RenderPart 共用正常 World RenderState。
-    RenderState state;
-
-    state.model = item->transform().matrix();
-    state.view = context.view;
-    state.projection = context.projection;
-
-    state.viewport = RenderViewport(
-        0,
-        0,
-        context.viewportWidth,
-        context.viewportHeight);
-
-    state.depthTestEnabled = item->depthTestEnabled();
-    state.depthWriteEnabled = true;
-    state.blendEnabled = false;
-
-    const Material* material = item->material();
-
     for (int partIndex = 0; partIndex < item->partCount(); ++partIndex)
     {
         const RenderPart* part = item->partAt(partIndex);
-
         if (part == 0 || part->geometry() == 0)
             continue;
 
         const Geometry* geometry = part->geometry();
+        const Material* material = part->material();
 
+        if (material == 0)
+            material = item->material();
+
+        RenderState state;
+        if (!buildItemPartRenderState(item, part, context, QPointF(0.0, 0.0), state))
+            continue;
         bool drawSucceeded = false;
-
-        /// Lines / LineStrip 不使用 Triangle 的 Wireframe DisplayMode。
-        ///
-        /// 它们始终按照自身 RenderType 和 Item Material 正常绘制。
-        if (geometry->renderType() != RenderType::Triangles)
+        /// 非标准模型不响应 Item Wireframe DisplayMode。
+        if (!part->isStandardModel() || geometry->renderType() != RenderType::Triangles)
         {
             if (material == 0)
             {
-                qWarning() << "OpenGLViewerWidget drawItemParts failed: non-triangle Part requires Material:"
+                qWarning() << "OpenGLViewerWidget drawItemParts failed: Part requires Material:"
                            << "Item=" << item->name()
                            << "PartId=" << static_cast<qulonglong>(part->id());
 
                 return false;
             }
 
-            drawSucceeded = m_renderer.drawGeometry(
-                geometry,
-                material,
-                state,
-                lights);
+            drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
         }
         else
         {
@@ -774,22 +950,14 @@ bool OpenGLViewerWidget::drawItemParts(const RenderItem* item, const RenderConte
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(
-                    geometry,
-                    material,
-                    state,
-                    lights);
+                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
 
                 break;
             }
 
             case DisplayMode::Wireframe:
             {
-                drawSucceeded = m_renderer.drawWireGeometry(
-                    geometry,
-                    item->edgeColor(),
-                    state,
-                    false);
+                drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, false);
 
                 break;
             }
@@ -805,20 +973,10 @@ bool OpenGLViewerWidget::drawItemParts(const RenderItem* item, const RenderConte
                     return false;
                 }
 
-                drawSucceeded = m_renderer.drawGeometry(
-                    geometry,
-                    material,
-                    state,
-                    lights);
+                drawSucceeded = m_renderer.drawGeometry(geometry, material, state, lights);
 
                 if (drawSucceeded)
-                {
-                    drawSucceeded = m_renderer.drawWireGeometry(
-                        geometry,
-                        item->edgeColor(),
-                        state,
-                        true);
-                }
+                    drawSucceeded = m_renderer.drawWireGeometry(geometry, item->edgeColor(), state, true);
 
                 break;
             }
@@ -838,7 +996,6 @@ bool OpenGLViewerWidget::drawItemParts(const RenderItem* item, const RenderConte
 
     return true;
 }
-
 bool OpenGLViewerWidget::drawItemLabels(const RenderItem* item, const RenderContext& context)
 {
     if (item == 0)
@@ -852,106 +1009,49 @@ bool OpenGLViewerWidget::drawItemLabels(const RenderItem* item, const RenderCont
 
     const std::vector<const Light*> noLights;
 
-    const QVector3D cameraForward = context.cameraForward.normalized();
-    const QVector3D cameraUp = context.cameraUp.normalized();
-    const QVector3D cameraRight = QVector3D::crossProduct(cameraForward, cameraUp).normalized();
-    const QVector3D sceneUp = QVector3D::crossProduct(cameraRight, cameraForward).normalized();
-
-    if (cameraRight.lengthSquared() <= 1.0e-12f || sceneUp.lengthSquared() <= 1.0e-12f)
-        return false;
-
     for (int labelIndex = 0; labelIndex < item->labelCount(); ++labelIndex)
     {
         const RenderLabel* label = item->labelAt(labelIndex);
 
-        if (label == 0 || !label->isRenderable())
+        if (label == 0 || label->geometry() == 0)
             continue;
 
         const Geometry* geometry = label->geometry();
+
         const Material* material = label->material();
 
-        if (geometry == 0 || material == 0)
-            continue;
+        if (material == 0)
+            material = item->material();
 
-        const QVector2D& sceneAnchor = label->anchorSence();
-        const QVector3D worldAnchor = label->anchorWorld() + cameraRight * sceneAnchor.x() + sceneUp * sceneAnchor.y();
+        if (material == 0)
+        {
+            qWarning() << "OpenGLViewerWidget drawItemLabels failed: Label requires Material:"
+                       << "Item=" << item->name()
+                       << "LabelId=" << static_cast<qulonglong>(label->id());
 
-        const QVector4D anchorClip = context.projection * context.view * QVector4D(worldAnchor, 1.0f);
-
-        if (anchorClip.w() <= 1.0e-8f)
-            continue;
-
-        const float anchorNdcX = anchorClip.x() / anchorClip.w();
-        const float anchorNdcY = anchorClip.y() / anchorClip.w();
-        const float anchorNdcZ = anchorClip.z() / anchorClip.w();
-
-        if (anchorNdcZ < -1.0f || anchorNdcZ > 1.0f)
-            continue;
-
-        float pixelX = (anchorNdcX * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
-        float pixelY = (anchorNdcY * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
-
-        pixelX += static_cast<float>(label->pixelOffset().x());
-        pixelY -= static_cast<float>(label->pixelOffset().y());
+            return false;
+        }
 
         RenderState state;
-        state.model.setToIdentity();
-        state.view.setToIdentity();
-        state.projection.setToIdentity();
-        state.projection.ortho(0.0f, static_cast<float>(context.viewportWidth), 0.0f, static_cast<float>(context.viewportHeight), -1.0f, 1.0f);
-        state.viewport = RenderViewport(0, 0, context.viewportWidth, context.viewportHeight);
-        state.depthTestEnabled = false;
-        state.depthWriteEnabled = false;
 
-        if (material->surfaceMode() == SurfaceMode::Texture)
-        {
-            /// Texture Label 的 Geometry 使用 Pixel 单位。
-            if (anchorNdcX < -1.0f || anchorNdcX > 1.0f || anchorNdcY < -1.0f || anchorNdcY > 1.0f)
-                continue;
+        if (!buildItemPartRenderState(item, label, context, label->pixelOffset(), state))
+            continue;
 
-            pixelX = static_cast<float>(qRound(pixelX));
-            pixelY = static_cast<float>(qRound(pixelY));
-
-            state.model.translate(pixelX, pixelY, 0.0f);
-            state.blendEnabled = true;
-        }
-        else
-        {
-            /// Geometry Label 的 XY 使用标尺尺度，需要转换成当前屏幕 Pixel 基向量。
-            const QVector3D worldXAxis = worldAnchor + cameraRight;
-            const QVector3D worldYAxis = worldAnchor + sceneUp;
-
-            const QVector4D xClip = context.projection * context.view * QVector4D(worldXAxis, 1.0f);
-            const QVector4D yClip = context.projection * context.view * QVector4D(worldYAxis, 1.0f);
-
-            if (xClip.w() <= 1.0e-8f || yClip.w() <= 1.0e-8f)
-                continue;
-
-            const float xPixelX = (xClip.x() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
-            const float xPixelY = (xClip.y() / xClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
-            const float yPixelX = (yClip.x() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportWidth);
-            const float yPixelY = (yClip.y() / yClip.w() * 0.5f + 0.5f) * static_cast<float>(context.viewportHeight);
-
-            const QVector2D pixelXAxis(xPixelX - pixelX, xPixelY - pixelY);
-            const QVector2D pixelYAxis(yPixelX - pixelX, yPixelY - pixelY);
-
-            state.model.setColumn(0, QVector4D(pixelXAxis.x(), pixelXAxis.y(), 0.0f, 0.0f));
-            state.model.setColumn(1, QVector4D(pixelYAxis.x(), pixelYAxis.y(), 0.0f, 0.0f));
-            state.model.setColumn(2, QVector4D(0.0f, 0.0f, 1.0f, 0.0f));
-            state.model.setColumn(3, QVector4D(pixelX, pixelY, 0.0f, 1.0f));
-            state.blendEnabled = false;
-        }
+        /// RenderLabel 专门用于文本显示，默认需要 Alpha Blend。
+        state.blendEnabled = true;
 
         if (!m_renderer.drawGeometry(geometry, material, state, noLights))
         {
-            qWarning() << "OpenGLViewerWidget drawItemLabels failed:" << "Item=" << item->name() << "LabelId=" << static_cast<qulonglong>(label->id());
+            qWarning() << "OpenGLViewerWidget drawItemLabels failed:"
+                       << "Item=" << item->name()
+                       << "LabelId=" << static_cast<qulonglong>(label->id());
+
             return false;
         }
     }
 
     return true;
 }
-
 
 /// Camera
 

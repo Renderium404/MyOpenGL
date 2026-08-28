@@ -5,6 +5,7 @@
 #include <QFont>
 #include <QFontMetrics>
 #include <QImage>
+#include <QMatrix4x4>
 #include <QPainter>
 #include <QVector4D>
 
@@ -76,12 +77,12 @@ RenderItem::RenderItem(const QString& name)
     : m_id(InvalidRenderItemId)
     , m_name(name)
     , m_nextPartId(1)
-    , m_nextLabelId(1)
     , m_material(0)
     , m_visible(true)
     , m_type(DisplayMode::Shaded)
     , m_edgeColor(0.05f, 0.05f, 0.05f, 1.0f)
     , m_depthTestEnabled(true)
+    , m_depthWriteEnabled(true)
 {
 }
 
@@ -151,6 +152,9 @@ bool RenderItem::removePart(RenderPartId id)
 
     delete target;
 
+    if (m_parts.empty() && m_labels.empty())
+        m_nextPartId = 1;
+
     return true;
 }
 
@@ -161,8 +165,10 @@ void RenderItem::clearParts()
 
     m_parts.clear();
     m_partsById.clear();
-    m_nextPartId = 1;
     m_localBoundsCache.reset();
+
+    if (m_labels.empty())
+        m_nextPartId = 1;
 }
 
 int RenderItem::partCount() const
@@ -207,11 +213,11 @@ const RenderPart* RenderItem::part(RenderPartId id) const
 
 RenderLabel* RenderItem::createLabel()
 {
-    const RenderLabelId id = allocateLabelId();
+    const RenderPartId id = allocatePartId();
 
-    if (id == InvalidRenderLabelId)
+    if (id == InvalidRenderPartId)
     {
-        qWarning() << "RenderItem createLabel failed: unable to allocate RenderLabelId:" << "Item=" << m_name;
+        qWarning() << "RenderItem createLabel failed: unable to allocate RenderPartId:" << "Item=" << m_name;
         return 0;
     }
 
@@ -379,6 +385,9 @@ bool RenderItem::removeLabel(RenderLabelId id)
 
     delete target;
 
+    if (m_parts.empty() && m_labels.empty())
+        m_nextPartId = 1;
+
     return true;
 }
 
@@ -389,7 +398,9 @@ void RenderItem::clearLabels()
 
     m_labels.clear();
     m_labelsById.clear();
-    m_nextLabelId = 1;
+
+    if (m_parts.empty())
+        m_nextPartId = 1;
 }
 
 int RenderItem::labelCount() const
@@ -560,15 +571,15 @@ bool RenderItem::raycastBox(const QVector3D& rayOrigin, const QVector3D& rayDire
     if (!invertible)
         return false;
 
-    const QVector3D localOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
-    const QVector3D localSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
+    const QVector3D itemLocalOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
+    const QVector3D itemLocalSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
 
-    QVector3D localDirection = localSecondPoint - localOrigin;
+    QVector3D itemLocalDirection = itemLocalSecondPoint - itemLocalOrigin;
 
-    if (localDirection.lengthSquared() <= 1.0e-12f)
+    if (itemLocalDirection.lengthSquared() <= 1.0e-12f)
         return false;
 
-    localDirection.normalize();
+    itemLocalDirection.normalize();
 
     bool found = false;
     float nearestDistance = FLT_MAX;
@@ -577,16 +588,19 @@ bool RenderItem::raycastBox(const QVector3D& rayOrigin, const QVector3D& rayDire
     {
         const RenderPart* currentPart = m_parts[i];
 
-        if (currentPart == 0 || !currentPart->hasLocalBounds())
+        if (currentPart == 0 || !currentPart->isStandardModel() || !currentPart->hasLocalBounds())
             continue;
 
-        float localDistance = 0.0f;
+        const QVector3D partLocalOrigin = itemLocalOrigin - currentPart->anchor3D();
 
-        if (!currentPart->localBounds().intersectRay(localOrigin, localDirection, localDistance))
+        float partLocalDistance = 0.0f;
+
+        if (!currentPart->localBounds().intersectRay(partLocalOrigin, itemLocalDirection, partLocalDistance))
             continue;
 
-        const QVector3D localPosition = localOrigin + localDirection * localDistance;
-        const QVector3D worldPosition = (model * QVector4D(localPosition, 1.0f)).toVector3D();
+        const QVector3D partLocalPosition = partLocalOrigin + itemLocalDirection * partLocalDistance;
+        const QVector3D itemLocalPosition = partLocalPosition + currentPart->anchor3D();
+        const QVector3D worldPosition = (model * QVector4D(itemLocalPosition, 1.0f)).toVector3D();
 
         float worldDistance = QVector3D::dotProduct(worldPosition - rayOrigin, worldDirection);
 
@@ -627,15 +641,15 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
     if (!invertible)
         return false;
 
-    const QVector3D localOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
-    const QVector3D localSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
+    const QVector3D itemLocalOrigin = (inverseModel * QVector4D(rayOrigin, 1.0f)).toVector3D();
+    const QVector3D itemLocalSecondPoint = (inverseModel * QVector4D(rayOrigin + worldDirection, 1.0f)).toVector3D();
 
-    QVector3D localDirection = localSecondPoint - localOrigin;
+    QVector3D itemLocalDirection = itemLocalSecondPoint - itemLocalOrigin;
 
-    if (localDirection.lengthSquared() <= 1.0e-12f)
+    if (itemLocalDirection.lengthSquared() <= 1.0e-12f)
         return false;
 
-    localDirection.normalize();
+    itemLocalDirection.normalize();
 
     bool found = false;
     float nearestDistance = FLT_MAX;
@@ -644,7 +658,7 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
     {
         const RenderPart* currentPart = m_parts[i];
 
-        if (currentPart == 0)
+        if (currentPart == 0 || !currentPart->isStandardModel())
             continue;
 
         const Geometry* geometry = currentPart->geometry();
@@ -652,11 +666,13 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
         if (geometry == 0 || geometry->renderType() != RenderType::Triangles)
             continue;
 
+        const QVector3D partLocalOrigin = itemLocalOrigin - currentPart->anchor3D();
+
         if (currentPart->hasLocalBounds())
         {
             float boundsDistance = 0.0f;
 
-            if (!currentPart->localBounds().intersectRay(localOrigin, localDirection, boundsDistance))
+            if (!currentPart->localBounds().intersectRay(partLocalOrigin, itemLocalDirection, boundsDistance))
                 continue;
         }
 
@@ -690,13 +706,14 @@ bool RenderItem::raycastPoint(const QVector3D& rayOrigin, const QVector3D& rayDi
             const QVector3D vertex1 = attributePosition(positionBegin[index1]);
             const QVector3D vertex2 = attributePosition(positionBegin[index2]);
 
-            float localDistance = 0.0f;
+            float partLocalDistance = 0.0f;
 
-            if (!intersectRayTriangle(localOrigin, localDirection, vertex0, vertex1, vertex2, localDistance))
+            if (!intersectRayTriangle(partLocalOrigin, itemLocalDirection, vertex0, vertex1, vertex2, partLocalDistance))
                 continue;
 
-            const QVector3D localPosition = localOrigin + localDirection * localDistance;
-            const QVector3D worldPosition = (model * QVector4D(localPosition, 1.0f)).toVector3D();
+            const QVector3D partLocalPosition = partLocalOrigin + itemLocalDirection * partLocalDistance;
+            const QVector3D itemLocalPosition = partLocalPosition + currentPart->anchor3D();
+            const QVector3D worldPosition = (model * QVector4D(itemLocalPosition, 1.0f)).toVector3D();
 
             float worldDistance = QVector3D::dotProduct(worldPosition - rayOrigin, worldDirection);
 
@@ -774,26 +791,25 @@ void RenderItem::setDepthTestEnabled(bool enabled)
     m_depthTestEnabled = enabled;
 }
 
+bool RenderItem::depthWriteEnabled() const
+{
+    return m_depthWriteEnabled;
+}
+
+void RenderItem::setDepthWriteEnabled(bool enabled)
+{
+    m_depthWriteEnabled = enabled;
+}
+
 /// ID 分配
 
 RenderPartId RenderItem::allocatePartId()
 {
-    while (m_nextPartId == InvalidRenderPartId || containsPart(m_nextPartId))
+    while (m_nextPartId == InvalidRenderPartId || containsPart(m_nextPartId) || containsLabel(m_nextPartId))
         ++m_nextPartId;
 
     const RenderPartId id = m_nextPartId;
     ++m_nextPartId;
-
-    return id;
-}
-
-RenderLabelId RenderItem::allocateLabelId()
-{
-    while (m_nextLabelId == InvalidRenderLabelId || containsLabel(m_nextLabelId))
-        ++m_nextLabelId;
-
-    const RenderLabelId id = m_nextLabelId;
-    ++m_nextLabelId;
 
     return id;
 }
@@ -808,7 +824,15 @@ void RenderItem::rebuildLocalBoundsCache() const
     {
         const RenderPart* currentPart = m_parts[i];
 
-        if (currentPart != 0 && currentPart->hasLocalBounds())
-            m_localBoundsCache.expandToInclude(currentPart->localBounds());
+        if (currentPart == 0 || !currentPart->isStandardModel() || !currentPart->hasLocalBounds())
+            continue;
+
+        QMatrix4x4 partTransform;
+        partTransform.translate(currentPart->anchor3D());
+
+        const AxisAlignedBoundingBox partBounds = currentPart->localBounds().transformed(partTransform);
+
+        if (partBounds.isValid())
+            m_localBoundsCache.expandToInclude(partBounds);
     }
 }

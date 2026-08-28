@@ -445,6 +445,7 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
 
     item->setMaterial(m_resultMaterial);
     item->setDepthTestEnabled(false);
+    item->setDepthWriteEnabled(false);
 
     const QVector4D& measurementColor = lineColor();
     const QVector3D geometryColor(measurementColor.x(), measurementColor.y(), measurementColor.z());
@@ -464,21 +465,20 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
         return false;
     }
 
-    RenderLabel* lineLabel = item->createLabel();
+    RenderPart* linePart = item->createPart();
 
-    if (lineLabel == 0)
+    if (linePart == 0)
     {
         viewer->resourceManager().remove(geometry->id());
         viewer->measurementItemManager().remove(item->id());
         return false;
     }
 
-    lineLabel->setAnchorWorld(m_planeOrigin);
-    lineLabel->setAnchorSence(startScene);
-    lineLabel->setPixelOffset(QPointF(0.0, 0.0));
-    lineLabel->setGeometry(geometry);
-    lineLabel->setMaterial(m_resultMaterial);
-    lineLabel->setVisible(true);
+    linePart->setGeometry(geometry);
+    linePart->setAnchor3D(m_planeOrigin);
+    linePart->setAnchor2D(startScene);
+    linePart->setFollowCamera(true);
+    linePart->setPixelSize(false);
 
     const QString startText = QStringLiteral("P1=%1").arg(pointText(start));
     const QString endText = QStringLiteral("P2=%1").arg(pointText(end));
