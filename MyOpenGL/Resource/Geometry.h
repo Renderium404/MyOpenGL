@@ -8,9 +8,9 @@ enum class RenderType
 {
     Triangles, // 每三个 Index 组成一个独立三角形。
     Lines,     // 每两个 Index 组成一条独立线段。
-    LineStrip  // 所有 Index 按顺序连接成一条连续折线。
+    LineStrip,  // 所有 Index 按顺序连接成一条连续折线。
+    Points
 };
-
 /// GPU Buffer 数据的典型更新频率。
 enum class BufferUsage
 {
@@ -40,9 +40,13 @@ public:
     virtual ~Geometry();
 
     /// GPU 绘制状态
+    /// 返回当前 Geometry 使用的 OpenGL VAO ID。
     virtual GLuint vao() const = 0;
+    /// 返回当前 Geometry 参与 Indexed Draw 的 Index 数量。
     virtual int indexCount() const = 0;
+    /// 返回当前 Geometry Index Buffer 使用的 OpenGL Index 数据类型。
     virtual GLenum indexType() const = 0;
+    /// 返回当前 Geometry 的几何图元绘制类型。
     virtual RenderType renderType() const = 0;
 
     /// Vertex Layout

@@ -12,7 +12,6 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
-#include <set>
 #include <vector>
 
 #include "MyOpenGL/Core/ResourceManager.h"
@@ -20,7 +19,7 @@
 #include "MyOpenGL/Material/MaterialManager.h"
 #include "MyOpenGL/Resource/BufferGeometry.h"
 #include "MyOpenGL/Resource/Texture.h"
-
+#include "RenderPointCloud.h"
 namespace
 {
 
@@ -109,6 +108,70 @@ QString RenderItem::type() const
     }
 
     return "Unknown";
+}
+
+/// Render
+
+bool RenderItem::drawParts(Renderer& renderer,
+                           const RenderContext& context,
+                           const std::vector<const Light*>& lights) const
+{
+    if (!m_visible)
+        return true;
+
+    for (std::size_t i = 0; i < m_parts.size(); ++i)
+    {
+        const RenderPart* currentPart = m_parts[i];
+
+        if (currentPart == 0)
+        {
+            qWarning() << "RenderItem drawParts failed: null RenderPart in internal collection:"
+                       << "Item=" << m_name
+                       << "Index=" << static_cast<qulonglong>(i);
+            return false;
+        }
+
+        if (!currentPart->draw(renderer, *this, context, lights))
+        {
+            qWarning() << "RenderItem drawParts failed while drawing RenderPart:"
+                       << "Item=" << m_name
+                       << "PartId=" << static_cast<qulonglong>(currentPart->id());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool RenderItem::drawLabels(Renderer& renderer,
+                            const RenderContext& context,
+                            const std::vector<const Light*>& lights) const
+{
+    if (!m_visible)
+        return true;
+
+    for (std::size_t i = 0; i < m_labels.size(); ++i)
+    {
+        const RenderLabel* currentLabel = m_labels[i];
+
+        if (currentLabel == 0)
+        {
+            qWarning() << "RenderItem drawLabels failed: null RenderLabel in internal collection:"
+                       << "Item=" << m_name
+                       << "Index=" << static_cast<qulonglong>(i);
+            return false;
+        }
+
+        if (!currentLabel->draw(renderer, *this, context, lights))
+        {
+            qWarning() << "RenderItem drawLabels failed while drawing RenderLabel:"
+                       << "Item=" << m_name
+                       << "LabelId=" << static_cast<qulonglong>(currentLabel->id());
+            return false;
+        }
+    }
+
+    return true;
 }
 
 /// Part 管理
@@ -441,68 +504,26 @@ const RenderLabel* RenderItem::label(RenderLabelId id) const
     return it != m_labelsById.end() ? it->second : 0;
 }
 
-/// Part Update
-
-bool RenderItem::applyPartUpdate(const RenderPartUpdate& update)
+RenderPointCloud*RenderItem::createRenderPointCloud()
 {
-    std::vector<RenderPartUpdate> updates;
-    updates.push_back(update);
+    const RenderPartId id =allocatePartId();
 
-    return applyPartUpdates(updates);
-}
-
-bool RenderItem::applyPartUpdates(const std::vector<RenderPartUpdate>& updates)
-{
-    if (updates.empty())
-        return true;
-
-    std::set<RenderPartId> updatedPartIds;
-
-    for (std::size_t i = 0; i < updates.size(); ++i)
+    if (id == InvalidRenderPartId)
     {
-        const RenderPartUpdate& update = updates[i];
+        qWarning()
+            << "RenderItem createRenderPointCloud failed:"
+            << "unable to allocate RenderPartId:"
+            << "Item=" << m_name;
 
-        if (!update.isValid())
-        {
-            qWarning() << "RenderItem applyPartUpdates failed: invalid RenderPartUpdate:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
-            return false;
-        }
-
-        if (!updatedPartIds.insert(update.partId).second)
-        {
-            qWarning() << "RenderItem applyPartUpdates failed: duplicate PartId:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
-            return false;
-        }
-
-        if (!containsPart(update.partId))
-        {
-            qWarning() << "RenderItem applyPartUpdates failed: Part does not exist:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(update.partId);
-            return false;
-        }
+        return 0;
     }
 
-    for (std::size_t i = 0; i < updates.size(); ++i)
-    {
-        const RenderPartUpdate& update = updates[i];
+    RenderPointCloud* result =new RenderPointCloud(id);
 
-        if (update.operation == RenderPartUpdateRemove)
-        {
-            if (!removePart(update.partId))
-                return false;
+    m_parts.push_back(result);
+    m_partsById[id] = result;
 
-            continue;
-        }
-
-        RenderPart* targetPart = part(update.partId);
-
-        if (targetPart == 0)
-            return false;
-
-        targetPart->setGeometry(update.geometry);
-        targetPart->setLocalBounds(update.localBounds);
-    }
-
-    return true;
+    return result;
 }
 
 /// Material

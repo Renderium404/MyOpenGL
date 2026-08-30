@@ -3,7 +3,6 @@
 
 #include "RenderLabel.h"
 #include "RenderPart.h"
-#include "RenderPartUpdate.h"
 #include "Transform.h"
 
 #include <QString>
@@ -12,12 +11,16 @@
 
 #include <map>
 #include <vector>
-
+class RenderPointCloud;
 class ItemManager;
+class Light;
 class Material;
 class MaterialManager;
+class Renderer;
 class ResourceManager;
-
+struct RenderContext;
+class BufferGeometry;
+class RenderPointCloud;
 /// RenderItem 唯一标识类型，由 ItemManager 统一分配。
 typedef unsigned int RenderItemId;
 
@@ -53,6 +56,16 @@ public:
     const QString& name() const{return m_name;}
     QString type() const;
     DisplayMode displayMode() const{return m_type;}
+
+    /// Render
+
+    /// 绘制当前 Item 的普通 Part。
+    /// Item 只负责遍历和调度，具体绘制行为由 RenderPart::draw() 决定。
+    bool drawParts(Renderer& renderer,const RenderContext& context,const std::vector<const Light*>& lights) const;
+
+    /// 绘制当前 Item 的 Label。
+    /// 保持与普通 Part 分阶段绘制，具体绘制行为由 RenderLabel::draw() 决定。
+    bool drawLabels(Renderer& renderer,const RenderContext& context,const std::vector<const Light*>& lights) const;
 
     /// Part 管理
     /// 创建并接管一个新的 RenderPart。
@@ -91,15 +104,8 @@ public:
     /// 按稳定 RenderLabelId 查询 RenderLabel，不存在时返回 0。
     RenderLabel* label(RenderLabelId id);
     const RenderLabel* label(RenderLabelId id) const;
-
-    /// Part Update
-
-    /// 应用一个 RenderPart 更新。
-    bool applyPartUpdate(const RenderPartUpdate& update);
-
-    /// 批量应用 RenderPart 更新，并在修改前验证全部 Update。
-    bool applyPartUpdates(const std::vector<RenderPartUpdate>& updates);
-
+    /// 创建并接管一个新的 RenderPointCloud。
+    RenderPointCloud* createRenderPointCloud();
     /// Material
 
     /// 返回当前 Item 使用的默认 Material，RenderItem 不拥有该对象。

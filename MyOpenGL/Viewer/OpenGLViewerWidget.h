@@ -129,13 +129,7 @@ private:
     bool buildNavigationAnchorRenderState(const RenderContext& context, RenderState& state) const;
 
     /// Item 渲染
-    bool drawItems(const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
-    /// 根据 Item / Part 的空间和深度语义构造最终 RenderState。
-    bool buildItemPartRenderState(const RenderItem* item, const RenderPart* part, const RenderContext& context, const QPointF& pixelOffset, RenderState& state) const;
-    /// 绘制 Item 的 RenderPart。
-    bool drawItemParts(const RenderItem* item, const RenderContext& context, const std::vector<const Light*>& lights);
-    /// 绘制 Item 的 RenderLabel。
-    bool drawItemLabels(const RenderItem* item, const RenderContext& context);
+    bool drawItems(Renderer& renderer, const ItemManager& itemManager, const RenderContext& context, const std::vector<const Light*>& lights);
     /// Camera Navigation
     bool navigationAnchor(QVector3D& anchor) const;
     /// 缩放走的锚点获取路径

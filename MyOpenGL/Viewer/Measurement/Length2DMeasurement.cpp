@@ -478,7 +478,7 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
     linePart->setAnchor3D(m_planeOrigin);
     linePart->setAnchor2D(startScene);
     linePart->setFollowCamera(true);
-    linePart->setPixelSize(false);
+    linePart->setPixelScale(false);
 
     const QString startText = QStringLiteral("P1=%1").arg(pointText(start));
     const QString endText = QStringLiteral("P2=%1").arg(pointText(end));

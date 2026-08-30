@@ -44,12 +44,12 @@ add_library(MyOpenGLCore STATIC
     Item/RenderPart.h
     Item/RenderLabel.cpp
     Item/RenderLabel.h
-    Item/RenderPartUpdate.cpp
-    Item/RenderPartUpdate.h
     Item/RenderItem.cpp
     Item/RenderItem.h
     Item/ItemManager.cpp
     Item/ItemManager.h
+    Item/RenderPointCloud.cpp
+    Item/RenderPointCloud.h
 
     Render/MyOpenGLContext.cpp
     Render/MyOpenGLContext.h

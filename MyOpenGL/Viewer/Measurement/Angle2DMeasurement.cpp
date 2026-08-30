@@ -433,7 +433,7 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
             linePart->setAnchor3D(m_planeOrigin);
             linePart->setAnchor2D(vertexScene);
             linePart->setFollowCamera(true);
-            linePart->setPixelSize(false);
+            linePart->setPixelScale(false);
         }
         else
         {
@@ -467,7 +467,7 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
             arcPart->setAnchor3D(m_planeOrigin);
             arcPart->setAnchor2D(vertexScene);
             arcPart->setFollowCamera(true);
-            arcPart->setPixelSize(false);
+            arcPart->setPixelScale(false);
         }
         else
         {

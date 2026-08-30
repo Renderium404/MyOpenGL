@@ -76,7 +76,7 @@ RenderLabel* MeasurementTool::createPersistentLabel(OpenGLViewerWidget* viewer, 
 
     label->setAnchor3D(anchor3D);
     label->setAnchor2D(anchor2D);
-    label->setPixelOffset(pixelOffset);
+    label->setAnchorPixel(pixelOffset);
 
     return label;
 }

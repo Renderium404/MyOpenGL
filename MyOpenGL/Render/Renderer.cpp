@@ -5,6 +5,7 @@
 #include "MyOpenGL/Render/MyOpenGLContext.h"
 #include "MyOpenGL/Resource/Geometry.h"
 #include "MyOpenGL/Resource/Texture.h"
+
 #include <QDebug>
 #include <QMatrix3x3>
 #include <QVector3D>
@@ -216,6 +217,7 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "\n"
         "    FragColor = vec4(result, surfaceColor.a);\n"
         "}\n";
+
     const char* textureVertexShader =
         "#version 330 core\n"
         "layout(location = 0) in vec3 aPosition;\n"
@@ -240,6 +242,7 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
         "{\n"
         "    FragColor = texture(texture0, texCoord) * color;\n"
         "}\n";
+
     if (!m_vertexColorProgram.initialize(gl, vertexColorVertexShader, vertexColorFragmentShader))
         return false;
 
@@ -301,7 +304,8 @@ bool Renderer::initialize(MyOpenGLContext* openGLContext)
 
     if (m_colorModelLocation < 0 || m_colorViewLocation < 0 || m_colorProjectionLocation < 0 ||
         m_solidModelLocation < 0 || m_solidViewLocation < 0 || m_solidProjectionLocation < 0 || m_solidColorLocation < 0 ||
-        m_textureModelLocation < 0 || m_textureViewLocation < 0 || m_textureProjectionLocation < 0 || m_textureSamplerLocation < 0 || m_textureColorLocation < 0 ||
+        m_textureModelLocation < 0 || m_textureViewLocation < 0 || m_textureProjectionLocation < 0 ||
+        m_textureSamplerLocation < 0 || m_textureColorLocation < 0 ||
         m_litModelLocation < 0 || m_litViewLocation < 0 || m_litProjectionLocation < 0 || m_litNormalLocation < 0 ||
         m_litBaseColorLocation < 0 || m_litUseVertexColorLocation < 0 || m_litAmbientLightLocation < 0 ||
         m_litLightCountLocation < 0 || m_litLightTypeLocation < 0 ||
@@ -367,36 +371,44 @@ const QVector4D& Renderer::clearColor() const
 
 bool Renderer::beginFrame(const RenderContext& context)
 {
-    if (!m_initialized){
+    if (!m_initialized)
+    {
         qWarning() << "Renderer beginFrame failed: renderer is not initialized.";
         return false;
     }
-    if (m_frameActive){
+
+    if (m_frameActive)
+    {
         qWarning() << "Renderer beginFrame failed: a frame is already active.";
         return false;
     }
-    if (!context.isValid()){
+
+    if (!context.isValid())
+    {
         qWarning() << "Renderer beginFrame failed: RenderContext is invalid.";
         return false;
     }
 
     QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
+
     if (gl == 0)
         return false;
+
     m_renderContext = context;
 
     gl->glViewport(0, 0, context.viewportWidth, context.viewportHeight);
 
-    gl->glEnable(GL_DEPTH_TEST); // 开启深度测试。
-    gl->glDepthFunc(GL_LESS);    // 只有当前 Fragment 深度值小于 Depth Buffer 中已有值时，才通过深度测试。
-    gl->glDepthMask(GL_TRUE);    // 允许通过深度测试的 Fragment 写入 Depth Buffer。
+    gl->glEnable(GL_DEPTH_TEST);
+    gl->glDepthFunc(GL_LESS);
+    gl->glDepthMask(GL_TRUE);
 
-    gl->glDisable(GL_BLEND);     // 默认关闭颜色混合，由具体 RenderState 决定是否开启。
+    gl->glDisable(GL_BLEND);
 
-    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL); // 默认使用填充模式绘制三角形。
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     gl->glLineWidth(1.0f);
-    gl->glClearColor(m_clearColor.x(), m_clearColor.y(), m_clearColor.z(), m_clearColor.w());// 设置当前 Frame 的背景色。
-    gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);                                  // 清除当前 Frame 的颜色缓冲和深度缓冲。
+
+    gl->glClearColor(m_clearColor.x(), m_clearColor.y(), m_clearColor.z(), m_clearColor.w());
+    gl->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     m_frameActive = true;
 
@@ -418,6 +430,7 @@ void Renderer::endFrame()
     gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
     gl->glDisable(GL_POLYGON_OFFSET_LINE);
     gl->glLineWidth(1.0f);
+
     gl->glDepthFunc(GL_LESS);
     gl->glDepthMask(GL_TRUE);
     gl->glEnable(GL_DEPTH_TEST);
@@ -428,6 +441,7 @@ void Renderer::endFrame()
 
     m_frameActive = false;
 }
+
 /// Geometry Draw
 
 bool Renderer::clearDepth(const RenderViewport& viewport)
@@ -449,7 +463,7 @@ bool Renderer::clearDepth(const RenderViewport& viewport)
     if (gl == 0)
         return false;
 
-    /// Depth Clear 必须允许写入 Depth Buffer。
+    /// 清除 Depth Buffer 前必须打开 Depth Write，否则 glClear 不会修改 Depth Buffer。
     gl->glDepthMask(GL_TRUE);
 
     gl->glEnable(GL_SCISSOR_TEST);
@@ -459,7 +473,32 @@ bool Renderer::clearDepth(const RenderViewport& viewport)
 
     return true;
 }
-bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const std::vector<const Light*>& lights)
+
+bool Renderer::drawGeometry(const Geometry* geometry,
+                            const Material* material,
+                            const RenderState& state,
+                            const std::vector<const Light*>& lights)
+{
+    return drawGeometryStates(geometry, material, &state, 1, lights);
+}
+
+bool Renderer::drawGeometry(const Geometry* geometry,
+                            const Material* material,
+                            const std::vector<RenderState>& states,
+                            const std::vector<const Light*>& lights)
+{
+    return drawGeometryStates(geometry,
+                              material,
+                              states.empty() ? 0 : &states[0],
+                              states.size(),
+                              lights);
+}
+
+bool Renderer::drawGeometryStates(const Geometry* geometry,
+                                  const Material* material,
+                                  const RenderState* states,
+                                  std::size_t stateCount,
+                                  const std::vector<const Light*>& lights)
 {
     if (!m_frameActive)
     {
@@ -469,7 +508,17 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
 
     if (geometry == 0 || material == 0)
     {
-        qWarning() << "Renderer drawGeometry failed: invalid argument.";
+        qWarning() << "Renderer drawGeometry failed: invalid Geometry or Material.";
+        return false;
+    }
+
+    /// 空 State 集合表示本次没有需要绘制的对象，不视为错误。
+    if (stateCount == 0)
+        return true;
+
+    if (states == 0)
+    {
+        qWarning() << "Renderer drawGeometry failed: RenderState array is null.";
         return false;
     }
 
@@ -479,123 +528,48 @@ bool Renderer::drawGeometry(const Geometry* geometry, const Material* material, 
         switch (material->surfaceMode())
         {
         case SurfaceMode::Color:
-            return drawColorGeometry(geometry, material->color(), state);
+            return drawColorGeometry(geometry, material->color(), states, stateCount);
 
         case SurfaceMode::VertexColor:
-            return drawVertexColorGeometry(geometry, state);
+            return drawVertexColorGeometry(geometry, states, stateCount);
 
         case SurfaceMode::Texture:
-            return drawTextureGeometry(geometry, material, state);
+            return drawTextureGeometry(geometry, material, states, stateCount);
         }
 
-        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:" << material->name();
+        qWarning() << "Renderer drawGeometry failed: unsupported Material surface mode:"
+                   << material->name();
+
         return false;
     }
 
-    /// 第一版不支持纹理参与光照。
+    /// 当前基础 Renderer 不支持 Texture SurfaceMode 参与光照。
     if (material->surfaceMode() == SurfaceMode::Texture)
     {
-        qWarning() << "Renderer drawGeometry failed: lit texture material is not supported:" << material->name();
+        qWarning() << "Renderer drawGeometry failed: lit texture material is not supported:"
+                   << material->name();
+
         return false;
     }
 
-    return drawLitGeometry(geometry, material, state, lights);
+    return drawLitGeometry(geometry, material, states, stateCount, lights);
 }
-/// Texture
 
-bool Renderer::drawTextureGeometry(const Geometry* geometry, const Material* material, const RenderState& state)
-{
-    if (geometry == 0 || material == 0)
-        return false;
-
-    if (!geometry->isInitialized() || geometry->vao() == 0)
-    {
-        qWarning() << "Renderer drawTextureGeometry failed: Geometry GPU resource is not initialized:" << geometry->name();
-        return false;
-    }
-
-    if (geometry->indexCount() <= 0)
-    {
-        qWarning() << "Renderer drawTextureGeometry failed: Geometry contains no indices:" << geometry->name();
-        return false;
-    }
-
-    if (!geometry->hasAttribute(GeometryAttribute::Position, 3) || !geometry->hasAttribute(GeometryAttribute::TexCoord, 2))
-    {
-        qWarning() << "Renderer drawTextureGeometry failed: position + texcoord layout is required:" << geometry->name();
-        return false;
-    }
-
-    const Texture* texture = material->texture();
-
-    if (texture == 0)
-    {
-        qWarning() << "Renderer drawTextureGeometry failed: Material texture is null:" << material->name();
-        return false;
-    }
-
-    if (!texture->isInitialized() || texture->textureId() == 0)
-    {
-        qWarning() << "Renderer drawTextureGeometry failed: Texture GPU resource is not initialized:" << texture->name();
-        return false;
-    }
-
-    QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
-
-    if (gl == 0)
-        return false;
-
-    if (!geometry->prepareDrawGL(gl))
-        return false;
-
-    if (!applyRenderState(state))
-    {
-        geometry->finishDrawGL(gl);
-        return false;
-    }
-
-    const QVector4D& color = material->color();
-
-    m_textureProgram.bind(gl);
-
-    gl->glUniformMatrix4fv(m_textureModelLocation, 1, GL_FALSE, state.model.constData());
-    gl->glUniformMatrix4fv(m_textureViewLocation, 1, GL_FALSE, state.view.constData());
-    gl->glUniformMatrix4fv(m_textureProjectionLocation, 1, GL_FALSE, state.projection.constData());
-    gl->glUniform4f(m_textureColorLocation, color.x(), color.y(), color.z(), color.w());
-
-    gl->glActiveTexture(GL_TEXTURE0);
-    gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
-    gl->glUniform1i(m_textureSamplerLocation, 0);
-
-gl->glBindVertexArray(geometry->vao());
-
-if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
-    gl->glLineWidth(geometry->lineWidth());
-
-gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-
-if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
-    gl->glLineWidth(1.0f);
-
-gl->glBindVertexArray(0);
-
-    gl->glBindTexture(GL_TEXTURE_2D, 0);
-
-    geometry->finishDrawGL(gl);
-
-    return true;
-}
 /// Color
 
-bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& color, const RenderState& state)
+bool Renderer::drawColorGeometry(const Geometry* geometry,
+                                 const QVector4D& color,
+                                 const RenderState* states,
+                                 std::size_t stateCount)
 {
-    if (geometry == 0)
+    if (geometry == 0 || states == 0 || stateCount == 0)
         return false;
 
     if (!geometry->isInitialized() || geometry->vao() == 0)
     {
         qWarning() << "Renderer drawColorGeometry failed: Geometry GPU resource is not initialized:"
                    << geometry->name();
+
         return false;
     }
 
@@ -603,6 +577,7 @@ bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& colo
     {
         qWarning() << "Renderer drawColorGeometry failed: Geometry contains no indices:"
                    << geometry->name();
+
         return false;
     }
 
@@ -610,6 +585,7 @@ bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& colo
     {
         qWarning() << "Renderer drawColorGeometry failed: position layout is required:"
                    << geometry->name();
+
         return false;
     }
 
@@ -621,47 +597,59 @@ bool Renderer::drawColorGeometry(const Geometry* geometry, const QVector4D& colo
     if (!geometry->prepareDrawGL(gl))
         return false;
 
-    if (!applyRenderState(state))
-    {
-        geometry->finishDrawGL(gl);
-        return false;
-    }
-
     m_solidColorProgram.bind(gl);
 
-    gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
-    gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
-    gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
+    /// 所有 RenderState 共用同一个 Material Color，因此只需要上传一次。
     gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
 
-gl->glBindVertexArray(geometry->vao());
+    gl->glBindVertexArray(geometry->vao());
 
-if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
-    gl->glLineWidth(geometry->lineWidth());
+    const bool lineGeometry =geometry->renderType() == RenderType::Lines ||geometry->renderType() == RenderType::LineStrip;
 
-gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    if (lineGeometry)gl->glLineWidth(geometry->lineWidth());
 
-if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
-    gl->glLineWidth(1.0f);
+    bool result = true;
 
-gl->glBindVertexArray(0);
+    for (std::size_t i = 0; i < stateCount; ++i)
+    {
+        const RenderState& state = states[i];
+
+        if (!applyRenderState(state))
+        {
+            result = false;
+            break;
+        }
+
+        gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
+        gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
+        gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
+
+        gl->glDrawElements(primitiveMode(geometry),geometry->indexCount(),geometry->indexType(),0);
+    }
+
+    if (lineGeometry)gl->glLineWidth(1.0f);
+
+    gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
 
-    return true;
+    return result;
 }
 
 /// Vertex Color
 
-bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderState& state)
+bool Renderer::drawVertexColorGeometry(const Geometry* geometry,
+                                       const RenderState* states,
+                                       std::size_t stateCount)
 {
-    if (geometry == 0)
+    if (geometry == 0 || states == 0 || stateCount == 0)
         return false;
 
     if (!geometry->isInitialized() || geometry->vao() == 0)
     {
         qWarning() << "Renderer drawVertexColorGeometry failed: Geometry GPU resource is not initialized:"
                    << geometry->name();
+
         return false;
     }
 
@@ -669,6 +657,7 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
     {
         qWarning() << "Renderer drawVertexColorGeometry failed: Geometry contains no indices:"
                    << geometry->name();
+
         return false;
     }
 
@@ -677,6 +666,7 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
     {
         qWarning() << "Renderer drawVertexColorGeometry failed: position + color layout is required:"
                    << geometry->name();
+
         return false;
     }
 
@@ -688,42 +678,180 @@ bool Renderer::drawVertexColorGeometry(const Geometry* geometry, const RenderSta
     if (!geometry->prepareDrawGL(gl))
         return false;
 
-    if (!applyRenderState(state))
-    {
-        geometry->finishDrawGL(gl);
-        return false;
-    }
-
     m_vertexColorProgram.bind(gl);
 
-    gl->glUniformMatrix4fv(m_colorModelLocation, 1, GL_FALSE, state.model.constData());
-    gl->glUniformMatrix4fv(m_colorViewLocation, 1, GL_FALSE, state.view.constData());
-    gl->glUniformMatrix4fv(m_colorProjectionLocation, 1, GL_FALSE, state.projection.constData());
-
     gl->glBindVertexArray(geometry->vao());
-    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+
+    const bool lineGeometry =
+        geometry->renderType() == RenderType::Lines ||
+        geometry->renderType() == RenderType::LineStrip;
+
+    if (lineGeometry)
         gl->glLineWidth(geometry->lineWidth());
-    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+
+    bool result = true;
+
+    for (std::size_t i = 0; i < stateCount; ++i)
+    {
+        const RenderState& state = states[i];
+
+        if (!applyRenderState(state))
+        {
+            result = false;
+            break;
+        }
+
+        gl->glUniformMatrix4fv(m_colorModelLocation, 1, GL_FALSE, state.model.constData());
+        gl->glUniformMatrix4fv(m_colorViewLocation, 1, GL_FALSE, state.view.constData());
+        gl->glUniformMatrix4fv(m_colorProjectionLocation, 1, GL_FALSE, state.projection.constData());
+
+        gl->glDrawElements(primitiveMode(geometry),
+                           geometry->indexCount(),
+                           geometry->indexType(),
+                           0);
+    }
+
+    if (lineGeometry)
         gl->glLineWidth(1.0f);
+
     gl->glBindVertexArray(0);
 
     geometry->finishDrawGL(gl);
 
-    return true;
+    return result;
+}
+
+/// Texture
+
+bool Renderer::drawTextureGeometry(const Geometry* geometry,
+                                   const Material* material,
+                                   const RenderState* states,
+                                   std::size_t stateCount)
+{
+    if (geometry == 0 || material == 0 || states == 0 || stateCount == 0)
+        return false;
+
+    if (!geometry->isInitialized() || geometry->vao() == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Geometry GPU resource is not initialized:"
+                   << geometry->name();
+
+        return false;
+    }
+
+    if (geometry->indexCount() <= 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Geometry contains no indices:"
+                   << geometry->name();
+
+        return false;
+    }
+
+    if (!geometry->hasAttribute(GeometryAttribute::Position, 3) ||
+        !geometry->hasAttribute(GeometryAttribute::TexCoord, 2))
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: position + texcoord layout is required:"
+                   << geometry->name();
+
+        return false;
+    }
+
+    const Texture* texture = material->texture();
+
+    if (texture == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Material texture is null:"
+                   << material->name();
+
+        return false;
+    }
+
+    if (!texture->isInitialized() || texture->textureId() == 0)
+    {
+        qWarning() << "Renderer drawTextureGeometry failed: Texture GPU resource is not initialized:"
+                   << texture->name();
+
+        return false;
+    }
+
+    QOpenGLFunctions_3_3_Core* gl = m_openGLContext->gl();
+
+    if (gl == 0)
+        return false;
+
+    if (!geometry->prepareDrawGL(gl))
+        return false;
+
+    const QVector4D& color = material->color();
+
+    m_textureProgram.bind(gl);
+
+    /// Material Color 和 Texture 对所有 RenderState 相同，因此只配置一次。
+    gl->glUniform4f(m_textureColorLocation, color.x(), color.y(), color.z(), color.w());
+
+    gl->glActiveTexture(GL_TEXTURE0);
+    gl->glBindTexture(GL_TEXTURE_2D, texture->textureId());
+    gl->glUniform1i(m_textureSamplerLocation, 0);
+
+    gl->glBindVertexArray(geometry->vao());
+
+    const bool lineGeometry =
+        geometry->renderType() == RenderType::Lines ||
+        geometry->renderType() == RenderType::LineStrip;
+
+    if (lineGeometry)
+        gl->glLineWidth(geometry->lineWidth());
+
+    bool result = true;
+
+    for (std::size_t i = 0; i < stateCount; ++i)
+    {
+        const RenderState& state = states[i];
+
+        if (!applyRenderState(state))
+        {
+            result = false;
+            break;
+        }
+
+        gl->glUniformMatrix4fv(m_textureModelLocation, 1, GL_FALSE, state.model.constData());
+        gl->glUniformMatrix4fv(m_textureViewLocation, 1, GL_FALSE, state.view.constData());
+        gl->glUniformMatrix4fv(m_textureProjectionLocation, 1, GL_FALSE, state.projection.constData());
+
+        gl->glDrawElements(primitiveMode(geometry),
+                           geometry->indexCount(),
+                           geometry->indexType(),
+                           0);
+    }
+
+    if (lineGeometry)
+        gl->glLineWidth(1.0f);
+
+    gl->glBindVertexArray(0);
+
+    gl->glBindTexture(GL_TEXTURE_2D, 0);
+
+    geometry->finishDrawGL(gl);
+
+    return result;
 }
 
 /// Lit
 
-bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* material, const RenderState& state, const std::vector<const Light*>& lights)
+bool Renderer::drawLitGeometry(const Geometry* geometry,
+                               const Material* material,
+                               const RenderState* states,
+                               std::size_t stateCount,
+                               const std::vector<const Light*>& lights)
 {
-    if (geometry == 0 || material == 0)
+    if (geometry == 0 || material == 0 || states == 0 || stateCount == 0)
         return false;
 
     if (!geometry->isInitialized() || geometry->vao() == 0)
     {
         qWarning() << "Renderer drawLitGeometry failed: Geometry GPU resource is not initialized:"
                    << geometry->name();
+
         return false;
     }
 
@@ -731,6 +859,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     {
         qWarning() << "Renderer drawLitGeometry failed: Geometry contains no indices:"
                    << geometry->name();
+
         return false;
     }
 
@@ -739,6 +868,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     {
         qWarning() << "Renderer drawLitGeometry failed: position + normal layout is required:"
                    << geometry->name();
+
         return false;
     }
 
@@ -748,6 +878,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     {
         qWarning() << "Renderer drawLitGeometry failed: unsupported Material surface mode:"
                    << material->name();
+
         return false;
     }
 
@@ -755,6 +886,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     {
         qWarning() << "Renderer drawLitGeometry failed: VertexColor requires color layout:"
                    << geometry->name();
+
         return false;
     }
 
@@ -777,6 +909,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     GLfloat lightInnerConeCos[MaxLights] = { 1.0f };
     GLfloat lightOuterConeCos[MaxLights] = { 1.0f };
 
+    /// π / 180，用于将 Light 中以 Degree 保存的 Spot Cone Angle 转换为 Radian。
     const float degreesToRadians = 0.017453292519943295f;
 
     int lightCount = 0;
@@ -789,8 +922,8 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         if (light == 0)
             continue;
 
-        // Renderer 不检查 Light::isEnabled()。
-        // 只要 Light 被调用者放入 lights，本次 Draw 就使用它。
+        /// Renderer 不检查 Light::isEnabled()。
+        /// 调用者放入 lights 的 Light 均视为本次 Draw 的有效输入。
         if (light->lightType() == LightType::Ambient)
         {
             ambientLight += light->color() * light->intensity();
@@ -826,6 +959,7 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         const QVector3D& direction = light->direction();
         const QVector3D& color = light->color();
 
+        /// 每个 vec3 在连续 GLfloat 数组中占用三个元素。
         const int vectorOffset = lightCount * 3;
 
         lightTypes[lightCount] = shaderLightType;
@@ -863,26 +997,23 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
     if (!geometry->prepareDrawGL(gl))
         return false;
 
-    if (!applyRenderState(state))
-    {
-        geometry->finishDrawGL(gl);
-        return false;
-    }
-
-    const QMatrix3x3 normalMatrix = state.model.normalMatrix();
     const QVector4D& baseColor = material->color();
 
     m_litProgram.bind(gl);
 
-    gl->glUniformMatrix4fv(m_litModelLocation, 1, GL_FALSE, state.model.constData());
-    gl->glUniformMatrix4fv(m_litViewLocation, 1, GL_FALSE, state.view.constData());
-    gl->glUniformMatrix4fv(m_litProjectionLocation, 1, GL_FALSE, state.projection.constData());
-    gl->glUniformMatrix3fv(m_litNormalLocation, 1, GL_FALSE, normalMatrix.constData());
+    /// Material 与 Light 对全部 RenderState 相同，因此只上传一次。
+    gl->glUniform4f(m_litBaseColorLocation,
+                    baseColor.x(),
+                    baseColor.y(),
+                    baseColor.z(),
+                    baseColor.w());
 
-    gl->glUniform4f(m_litBaseColorLocation, baseColor.x(), baseColor.y(), baseColor.z(), baseColor.w());
     gl->glUniform1i(m_litUseVertexColorLocation, useVertexColor ? 1 : 0);
 
-    gl->glUniform3f(m_litAmbientLightLocation, ambientLight.x(), ambientLight.y(), ambientLight.z());
+    gl->glUniform3f(m_litAmbientLightLocation,
+                    ambientLight.x(),
+                    ambientLight.y(),
+                    ambientLight.z());
 
     gl->glUniform1i(m_litLightCountLocation, lightCount);
 
@@ -901,28 +1032,78 @@ bool Renderer::drawLitGeometry(const Geometry* geometry, const Material* materia
         gl->glUniform1fv(m_litLightOuterConeCosLocation, lightCount, lightOuterConeCos);
     }
 
-    // gl->glBindVertexArray(geometry->vao());
-    // gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
-    // gl->glBindVertexArray(0);
     gl->glBindVertexArray(geometry->vao());
 
-    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    const bool lineGeometry =
+        geometry->renderType() == RenderType::Lines ||
+        geometry->renderType() == RenderType::LineStrip;
+
+    if (lineGeometry)
         gl->glLineWidth(geometry->lineWidth());
 
-    gl->glDrawElements(primitiveMode(geometry), geometry->indexCount(), geometry->indexType(), 0);
+    bool result = true;
 
-    if (geometry->renderType() == RenderType::Lines || geometry->renderType() == RenderType::LineStrip)
+    for (std::size_t i = 0; i < stateCount; ++i)
+    {
+        const RenderState& state = states[i];
+
+        if (!applyRenderState(state))
+        {
+            result = false;
+            break;
+        }
+
+        /// Normal Matrix 依赖当前 Model，因此必须针对每个 RenderState 单独计算。
+        const QMatrix3x3 normalMatrix = state.model.normalMatrix();
+
+        gl->glUniformMatrix4fv(m_litModelLocation, 1, GL_FALSE, state.model.constData());
+        gl->glUniformMatrix4fv(m_litViewLocation, 1, GL_FALSE, state.view.constData());
+        gl->glUniformMatrix4fv(m_litProjectionLocation, 1, GL_FALSE, state.projection.constData());
+        gl->glUniformMatrix3fv(m_litNormalLocation, 1, GL_FALSE, normalMatrix.constData());
+
+        gl->glDrawElements(primitiveMode(geometry),
+                           geometry->indexCount(),
+                           geometry->indexType(),
+                           0);
+    }
+
+    if (lineGeometry)
         gl->glLineWidth(1.0f);
 
     gl->glBindVertexArray(0);
+
     geometry->finishDrawGL(gl);
 
-    return true;
+    return result;
 }
 
 /// Wireframe
 
-bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color, const RenderState& state, bool overlay)
+bool Renderer::drawWireGeometry(const Geometry* geometry,
+                                const QVector4D& color,
+                                const RenderState& state,
+                                bool overlay)
+{
+    return drawWireGeometryStates(geometry, color, &state, 1, overlay);
+}
+
+bool Renderer::drawWireGeometry(const Geometry* geometry,
+                                const QVector4D& color,
+                                const std::vector<RenderState>& states,
+                                bool overlay)
+{
+    return drawWireGeometryStates(geometry,
+                                  color,
+                                  states.empty() ? 0 : &states[0],
+                                  states.size(),
+                                  overlay);
+}
+
+bool Renderer::drawWireGeometryStates(const Geometry* geometry,
+                                      const QVector4D& color,
+                                      const RenderState* states,
+                                      std::size_t stateCount,
+                                      bool overlay)
 {
     if (!m_frameActive)
     {
@@ -936,10 +1117,21 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
         return false;
     }
 
+    /// 空 State 集合表示本次没有需要绘制的对象，不视为错误。
+    if (stateCount == 0)
+        return true;
+
+    if (states == 0)
+    {
+        qWarning() << "Renderer drawWireGeometry failed: RenderState array is null.";
+        return false;
+    }
+
     if (geometry->renderType() != RenderType::Triangles)
     {
         qWarning() << "Renderer drawWireGeometry failed: Triangle Geometry is required:"
                    << geometry->name();
+
         return false;
     }
 
@@ -947,6 +1139,7 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
     {
         qWarning() << "Renderer drawWireGeometry failed: Geometry GPU resource is not initialized:"
                    << geometry->name();
+
         return false;
     }
 
@@ -954,6 +1147,7 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
     {
         qWarning() << "Renderer drawWireGeometry failed: Geometry contains no indices:"
                    << geometry->name();
+
         return false;
     }
 
@@ -961,6 +1155,7 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
     {
         qWarning() << "Renderer drawWireGeometry failed: position layout is required:"
                    << geometry->name();
+
         return false;
     }
 
@@ -972,43 +1167,65 @@ bool Renderer::drawWireGeometry(const Geometry* geometry, const QVector4D& color
     if (!geometry->prepareDrawGL(gl))
         return false;
 
-    if (!applyRenderState(state))
-    {
-        geometry->finishDrawGL(gl);
-        return false;
-    }
-
-    if (overlay && state.depthTestEnabled)
-    {
-        gl->glDepthFunc(GL_LEQUAL);
-        gl->glEnable(GL_POLYGON_OFFSET_LINE);
-        gl->glPolygonOffset(-1.0f, -1.0f);
-    }
-
-    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
     m_solidColorProgram.bind(gl);
 
-    gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
-    gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
-    gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
-    gl->glUniform4f(m_solidColorLocation, color.x(), color.y(), color.z(), color.w());
+    /// Wireframe Color 对全部 RenderState 相同，因此只上传一次。
+    gl->glUniform4f(m_solidColorLocation,
+                    color.x(),
+                    color.y(),
+                    color.z(),
+                    color.w());
 
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     gl->glBindVertexArray(geometry->vao());
-    gl->glDrawElements(GL_TRIANGLES, geometry->indexCount(), geometry->indexType(), 0);
+
+    bool result = true;
+
+    for (std::size_t i = 0; i < stateCount; ++i)
+    {
+        const RenderState& state = states[i];
+
+        if (!applyRenderState(state))
+        {
+            result = false;
+            break;
+        }
+
+        const bool useOverlayDepth = overlay && state.depthTestEnabled;
+
+        if (useOverlayDepth)
+        {
+            /// LEQUAL 配合负 Polygon Offset，使边线稳定显示在已经绘制的实体表面。
+            gl->glDepthFunc(GL_LEQUAL);
+            gl->glEnable(GL_POLYGON_OFFSET_LINE);
+            gl->glPolygonOffset(-1.0f, -1.0f);
+        }
+
+        gl->glUniformMatrix4fv(m_solidModelLocation, 1, GL_FALSE, state.model.constData());
+        gl->glUniformMatrix4fv(m_solidViewLocation, 1, GL_FALSE, state.view.constData());
+        gl->glUniformMatrix4fv(m_solidProjectionLocation, 1, GL_FALSE, state.projection.constData());
+
+        gl->glDrawElements(GL_TRIANGLES,
+                           geometry->indexCount(),
+                           geometry->indexType(),
+                           0);
+
+        if (useOverlayDepth)
+        {
+            gl->glDisable(GL_POLYGON_OFFSET_LINE);
+            gl->glDepthFunc(GL_LESS);
+        }
+    }
+
     gl->glBindVertexArray(0);
+
+    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    gl->glDisable(GL_POLYGON_OFFSET_LINE);
+    gl->glDepthFunc(GL_LESS);
 
     geometry->finishDrawGL(gl);
 
-    gl->glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-    if (overlay && state.depthTestEnabled)
-    {
-        gl->glDisable(GL_POLYGON_OFFSET_LINE);
-        gl->glDepthFunc(GL_LESS);
-    }
-
-    return true;
+    return result;
 }
 
 /// Render State
@@ -1026,7 +1243,10 @@ bool Renderer::applyRenderState(const RenderState& state)
     if (gl == 0)
         return false;
 
-    gl->glViewport(state.viewport.x, state.viewport.y, state.viewport.width, state.viewport.height);
+    gl->glViewport(state.viewport.x,
+                   state.viewport.y,
+                   state.viewport.width,
+                   state.viewport.height);
 
     if (state.depthTestEnabled)
         gl->glEnable(GL_DEPTH_TEST);
@@ -1035,9 +1255,10 @@ bool Renderer::applyRenderState(const RenderState& state)
 
     gl->glDepthMask(state.depthWriteEnabled ? GL_TRUE : GL_FALSE);
 
-    // 当前基础 Renderer 的普通 Geometry Draw 固定使用 GL_LESS。
-    // Wire Overlay 会在自身 Draw Scope 内临时切换为 GL_LEQUAL。
+    /// 普通 Geometry Draw 固定使用 GL_LESS。
+    /// Wire Overlay 会在自己的 Draw Scope 内临时切换为 GL_LEQUAL。
     gl->glDepthFunc(GL_LESS);
+
     if (state.blendEnabled)
     {
         gl->glEnable(GL_BLEND);
@@ -1047,6 +1268,7 @@ bool Renderer::applyRenderState(const RenderState& state)
     {
         gl->glDisable(GL_BLEND);
     }
+
     return true;
 }
 
@@ -1067,9 +1289,10 @@ GLenum Renderer::primitiveMode(const Geometry* geometry) const
 
     case RenderType::LineStrip:
         return GL_LINE_STRIP;
+
+    case RenderType::Points:
+        return GL_POINTS;
     }
 
     return GL_TRIANGLES;
 }
-
-
