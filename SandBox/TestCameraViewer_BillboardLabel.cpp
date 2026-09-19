@@ -118,8 +118,8 @@ protected:
         painter.drawText(QPointF(16.0, 92.0), QString("DrawCPU Avg=%1 ms  Max=%2 ms")
             .arg(m_averageDrawMs, 0, 'f', 3).arg(m_maxDrawMs, 0, 'f', 3));
         painter.drawText(QPointF(16.0, 114.0), QString("Benchmark=%1").arg(m_benchmarkEnabled ? "ON" : "OFF"));
-        painter.drawText(QPointF(16.0, 136.0), QStringLiteral("+ / Up£ºÌá¸ßÒ»¼¶    - / Down£º½µµÍÒ»¼¶"));
-        painter.drawText(QPointF(16.0, 158.0), QStringLiteral("Space£ºÁ¬Ðø»æÖÆ¿ª¹Ø    R£ºÖØÖÃÊÓÍ¼"));
+        painter.drawText(QPointF(16.0, 136.0), QStringLiteral("+ / Upï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½    - / Downï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Ò»ï¿½ï¿½"));
+        painter.drawText(QPointF(16.0, 158.0), QStringLiteral("Spaceï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Æ¿ï¿½ï¿½ï¿½    Rï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½Í¼"));
         OpenGLViewerWidget::drawViewportOverlay(painter);
     }
 
@@ -204,7 +204,8 @@ private:
         }
         m_pointCloudItemId = item->id();
         item->setMaterial(m_pointMaterial);
-        m_renderPointCloud = item->createRenderPointCloud();
+        m_renderPointCloud = itemManager().createRenderPointCloud();
+        item->addPart(m_renderPointCloud);
         if (m_renderPointCloud == 0) {
             qWarning() << "PointCloudTestViewer buildPointCloudItem failed:" << "unable to create RenderPointCloud.";
             return false;

@@ -465,8 +465,8 @@ bool Length2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
         return false;
     }
 
-    RenderPart* linePart = item->createPart();
-
+    RenderPart* linePart = viewer->measurementItemManager().createPart();
+    item->addPart(linePart);
     if (linePart == 0)
     {
         viewer->resourceManager().remove(geometry->id());

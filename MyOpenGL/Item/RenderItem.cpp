@@ -1,12 +1,7 @@
-#include "RenderItem.h"
+﻿#include "RenderItem.h"
 
-#include <QColor>
 #include <QDebug>
-#include <QFont>
-#include <QFontMetrics>
-#include <QImage>
 #include <QMatrix4x4>
-#include <QPainter>
 #include <QVector4D>
 
 #include <algorithm>
@@ -14,12 +9,8 @@
 #include <cmath>
 #include <vector>
 
-#include "MyOpenGL/Core/ResourceManager.h"
 #include "MyOpenGL/Material/Material.h"
-#include "MyOpenGL/Material/MaterialManager.h"
-#include "MyOpenGL/Resource/BufferGeometry.h"
-#include "MyOpenGL/Resource/Texture.h"
-#include "RenderPointCloud.h"
+#include "MyOpenGL/Resource/Geometry.h"
 namespace
 {
 
@@ -75,7 +66,6 @@ RenderItemRayHit::RenderItemRayHit()
 RenderItem::RenderItem(const QString& name)
     : m_id(InvalidRenderItemId)
     , m_name(name)
-    , m_nextPartId(1)
     , m_material(0)
     , m_visible(true)
     , m_type(DisplayMode::Shaded)
@@ -174,24 +164,17 @@ bool RenderItem::drawLabels(Renderer& renderer,
     return true;
 }
 
-/// Part 管理
+/// Part 组织
 
-RenderPart* RenderItem::createPart()
+bool RenderItem::addPart(RenderPart* part)
 {
-    const RenderPartId id = allocatePartId();
+    if (part == 0 || part->id() == InvalidRenderPartId || containsPart(part->id()) || containsLabel(part->id()))
+        return false;
 
-    if (id == InvalidRenderPartId)
-    {
-        qWarning() << "RenderItem createPart failed: unable to allocate RenderPartId:" << "Item=" << m_name;
-        return 0;
-    }
-
-    RenderPart* result = new RenderPart(id);
-
-    m_parts.push_back(result);
-    m_partsById[id] = result;
-
-    return result;
+    m_parts.push_back(part);
+    m_partsById[part->id()] = part;
+    m_localBoundsCache.reset();
+    return true;
 }
 
 bool RenderItem::removePart(RenderPartId id)
@@ -205,34 +188,22 @@ bool RenderItem::removePart(RenderPartId id)
     std::vector<RenderPart*>::iterator vectorIterator = std::find(m_parts.begin(), m_parts.end(), target);
 
     if (vectorIterator == m_parts.end())
-    {
-        qWarning() << "RenderItem removePart failed: internal Part collection is inconsistent:" << "Item=" << m_name << "PartId=" << static_cast<qulonglong>(id);
         return false;
-    }
 
     m_parts.erase(vectorIterator);
     m_partsById.erase(mapIterator);
-
-    delete target;
-
-    if (m_parts.empty() && m_labels.empty())
-        m_nextPartId = 1;
-
+    m_localBoundsCache.reset();
     return true;
 }
 
 void RenderItem::clearParts()
 {
-    for (std::size_t i = 0; i < m_parts.size(); ++i)
-        delete m_parts[i];
-
     m_parts.clear();
     m_partsById.clear();
     m_localBoundsCache.reset();
-
-    if (m_labels.empty())
-        m_nextPartId = 1;
 }
+
+/// Part 查询
 
 int RenderItem::partCount() const
 {
@@ -262,169 +233,26 @@ const RenderPart* RenderItem::partAt(int index) const
 
 RenderPart* RenderItem::part(RenderPartId id)
 {
-    std::map<RenderPartId, RenderPart*>::iterator it = m_partsById.find(id);
-    return it != m_partsById.end() ? it->second : 0;
+    std::map<RenderPartId, RenderPart*>::iterator iterator = m_partsById.find(id);
+    return iterator != m_partsById.end() ? iterator->second : 0;
 }
 
 const RenderPart* RenderItem::part(RenderPartId id) const
 {
-    std::map<RenderPartId, RenderPart*>::const_iterator it = m_partsById.find(id);
-    return it != m_partsById.end() ? it->second : 0;
+    std::map<RenderPartId, RenderPart*>::const_iterator iterator = m_partsById.find(id);
+    return iterator != m_partsById.end() ? iterator->second : 0;
 }
 
-/// Label 管理
+/// Label 组织
 
-RenderLabel* RenderItem::createLabel()
+bool RenderItem::addLabel(RenderLabel* label)
 {
-    const RenderPartId id = allocatePartId();
+    if (label == 0 || label->id() == InvalidRenderLabelId || containsPart(label->id()) || containsLabel(label->id()))
+        return false;
 
-    if (id == InvalidRenderPartId)
-    {
-        qWarning() << "RenderItem createLabel failed: unable to allocate RenderPartId:" << "Item=" << m_name;
-        return 0;
-    }
-
-    RenderLabel* result = new RenderLabel(id);
-
-    m_labels.push_back(result);
-    m_labelsById[id] = result;
-
-    return result;
-}
-
-RenderLabel* RenderItem::createTextLabel(ResourceManager& resourceManager, MaterialManager& materialManager, const QString& text, int textPixelSize)
-{
-    if (text.isEmpty() || textPixelSize <= 0)
-        return 0;
-
-    RenderLabel* label = createLabel();
-
-    if (label == 0)
-        return 0;
-
-    const RenderLabelId labelId = label->id();
-
-    QFont font;
-    font.setPixelSize(textPixelSize);
-
-    const QFontMetrics metrics(font);
-
-    const int horizontalPadding = 4; // 文本左右背景留白，单位 Pixel。
-    const int verticalPadding = 2;   // 文本上下背景留白，单位 Pixel。
-
-    const int textWidth = metrics.width(text);
-    const int textHeight = metrics.height();
-    const int imageWidth = textWidth + horizontalPadding * 2;
-    const int imageHeight = textHeight + verticalPadding * 2;
-
-    if (imageWidth <= 0 || imageHeight <= 0)
-    {
-        removeLabel(labelId);
-        return 0;
-    }
-
-    QImage image(imageWidth, imageHeight, QImage::Format_RGBA8888);
-    image.fill(Qt::transparent);
-
-    QPainter painter(&image);
-    painter.setRenderHint(QPainter::TextAntialiasing, true);
-    painter.fillRect(image.rect(), QColor(0, 0, 0, 160)); // 160 Alpha 用于半透明标签背景。
-    painter.setFont(font);
-    painter.setPen(QColor(255, 230, 120));
-    painter.drawText(QRect(horizontalPadding, verticalPadding, textWidth, textHeight), Qt::AlignLeft | Qt::AlignVCenter, text);
-    painter.end();
-
-    const QString resourceSuffix = QStringLiteral("%1_%2").arg(static_cast<qulonglong>(m_id)).arg(static_cast<qulonglong>(labelId));
-
-    Texture* texture = new Texture(QStringLiteral("RenderLabelTextTexture_%1").arg(resourceSuffix));
-
-    if (!texture->setImage(image))
-    {
-        delete texture;
-        removeLabel(labelId);
-        return 0;
-    }
-
-    if (resourceManager.adopt(texture) == InvalidResourceId)
-    {
-        delete texture;
-        removeLabel(labelId);
-        return 0;
-    }
-
-    BufferGeometry* geometry = new BufferGeometry(QStringLiteral("RenderLabelTextGeometry_%1").arg(resourceSuffix), BufferUsage::Static, RenderType::Triangles);
-
-    std::vector<GeometryVertexAttribute> attributes;
-
-    GeometryVertexAttribute position;
-    position.location = GeometryAttribute::Position;
-    position.componentCount = 3;
-    position.valueOffset = 0;
-    attributes.push_back(position);
-
-    GeometryVertexAttribute texCoord;
-    texCoord.location = GeometryAttribute::TexCoord;
-    texCoord.componentCount = 2;
-    texCoord.valueOffset = 3;
-    attributes.push_back(texCoord);
-
-    geometry->setVertexLayout(5, attributes);
-
-    const float width = static_cast<float>(imageWidth);
-    const float height = static_cast<float>(imageHeight);
-
-    const std::vector<GLfloat> vertices =
-    {
-        0.0f,  0.0f,   0.0f, 0.0f, 1.0f,
-        width, 0.0f,   0.0f, 1.0f, 1.0f,
-        width, height, 0.0f, 1.0f, 0.0f,
-        0.0f,  height, 0.0f, 0.0f, 0.0f
-    };
-
-    const std::vector<GLuint> indices =
-    {
-        0, 1, 2,
-        0, 2, 3
-    };
-
-    geometry->setVertexData(vertices);
-    geometry->setIndexData(indices);
-
-    if (resourceManager.adopt(geometry) == InvalidResourceId)
-    {
-        delete geometry;
-        resourceManager.remove(texture->id());
-        removeLabel(labelId);
-        return 0;
-    }
-
-    Material* material = materialManager.createMaterial(QStringLiteral("RenderLabelTextMaterial_%1").arg(resourceSuffix));
-
-    if (material == 0)
-    {
-        resourceManager.remove(geometry->id());
-        resourceManager.remove(texture->id());
-        removeLabel(labelId);
-        return 0;
-    }
-
-    if (!material->setSurfaceMode(SurfaceMode::Texture))
-    {
-        materialManager.remove(material->id());
-        resourceManager.remove(geometry->id());
-        resourceManager.remove(texture->id());
-        removeLabel(labelId);
-        return 0;
-    }
-
-    material->setLightingEnabled(false);
-    material->setTexture(texture);
-    material->setColor(QVector4D(1.0f, 1.0f, 1.0f, 1.0f));
-
-    label->setGeometry(geometry);
-    label->setMaterial(material);
-
-    return label;
+    m_labels.push_back(label);
+    m_labelsById[label->id()] = label;
+    return true;
 }
 
 bool RenderItem::removeLabel(RenderLabelId id)
@@ -438,33 +266,20 @@ bool RenderItem::removeLabel(RenderLabelId id)
     std::vector<RenderLabel*>::iterator vectorIterator = std::find(m_labels.begin(), m_labels.end(), target);
 
     if (vectorIterator == m_labels.end())
-    {
-        qWarning() << "RenderItem removeLabel failed: internal Label collection is inconsistent:" << "Item=" << m_name << "LabelId=" << static_cast<qulonglong>(id);
         return false;
-    }
 
     m_labels.erase(vectorIterator);
     m_labelsById.erase(mapIterator);
-
-    delete target;
-
-    if (m_parts.empty() && m_labels.empty())
-        m_nextPartId = 1;
-
     return true;
 }
 
 void RenderItem::clearLabels()
 {
-    for (std::size_t i = 0; i < m_labels.size(); ++i)
-        delete m_labels[i];
-
     m_labels.clear();
     m_labelsById.clear();
-
-    if (m_parts.empty())
-        m_nextPartId = 1;
 }
+
+/// Label 查询
 
 int RenderItem::labelCount() const
 {
@@ -494,36 +309,14 @@ const RenderLabel* RenderItem::labelAt(int index) const
 
 RenderLabel* RenderItem::label(RenderLabelId id)
 {
-    std::map<RenderLabelId, RenderLabel*>::iterator it = m_labelsById.find(id);
-    return it != m_labelsById.end() ? it->second : 0;
+    std::map<RenderLabelId, RenderLabel*>::iterator iterator = m_labelsById.find(id);
+    return iterator != m_labelsById.end() ? iterator->second : 0;
 }
 
 const RenderLabel* RenderItem::label(RenderLabelId id) const
 {
-    std::map<RenderLabelId, RenderLabel*>::const_iterator it = m_labelsById.find(id);
-    return it != m_labelsById.end() ? it->second : 0;
-}
-
-RenderPointCloud*RenderItem::createRenderPointCloud()
-{
-    const RenderPartId id =allocatePartId();
-
-    if (id == InvalidRenderPartId)
-    {
-        qWarning()
-            << "RenderItem createRenderPointCloud failed:"
-            << "unable to allocate RenderPartId:"
-            << "Item=" << m_name;
-
-        return 0;
-    }
-
-    RenderPointCloud* result =new RenderPointCloud(id);
-
-    m_parts.push_back(result);
-    m_partsById[id] = result;
-
-    return result;
+    std::map<RenderLabelId, RenderLabel*>::const_iterator iterator = m_labelsById.find(id);
+    return iterator != m_labelsById.end() ? iterator->second : 0;
 }
 
 /// Material
@@ -820,19 +613,6 @@ bool RenderItem::depthWriteEnabled() const
 void RenderItem::setDepthWriteEnabled(bool enabled)
 {
     m_depthWriteEnabled = enabled;
-}
-
-/// ID 分配
-
-RenderPartId RenderItem::allocatePartId()
-{
-    while (m_nextPartId == InvalidRenderPartId || containsPart(m_nextPartId) || containsLabel(m_nextPartId))
-        ++m_nextPartId;
-
-    const RenderPartId id = m_nextPartId;
-    ++m_nextPartId;
-
-    return id;
 }
 
 /// Bounds

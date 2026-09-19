@@ -1,4 +1,4 @@
-#ifndef RENDERLABEL_H
+﻿#ifndef RENDERLABEL_H
 #define RENDERLABEL_H
 
 #include "RenderPart.h"
@@ -18,8 +18,8 @@ public:
     /// Render
     bool draw(Renderer& renderer,const RenderItem& item,const RenderContext& context,const std::vector<const Light*>& lights) const override;
 protected:
-    friend class RenderItem;
-    /// RenderItem 内部接口。
+    friend class ItemManager;
+    /// ItemManager 内部接口。
     explicit RenderLabel(RenderLabelId id);
     ~RenderLabel() override;
 };

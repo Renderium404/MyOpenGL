@@ -1,4 +1,4 @@
-#ifndef RENDERPART_H
+﻿#ifndef RENDERPART_H
 #define RENDERPART_H
 
 #include "AxisAlignedBoundingBox.h"
@@ -18,7 +18,7 @@ class Renderer;
 struct RenderContext;
 struct RenderState;
 
-/// RenderPart 唯一标识类型，由 RenderItem 统一分配。
+/// RenderPart 唯一标识类型，由 ItemManager 全局统一分配。
 typedef std::uint64_t RenderPartId;
 
 /// 无效 RenderPart ID。
@@ -32,8 +32,9 @@ enum class RenderPartStateMode
     Disabled
 };
 
-/// RenderItem 内具有稳定身份的最小可绘制单位。
-/// RenderPart 不拥有其引用的 Geometry 和 Material。
+/// ItemManager 中具有稳定身份的最小可绘制单位。
+/// RenderPart 不拥有其引用的 Geometry 和 Material，也不属于任何单一 RenderItem。
+/// 一个 RenderPart 可以被多个 RenderItem 同时组织和绘制。
 class RenderPart
 {
 public:
@@ -106,9 +107,9 @@ public:
     /// 设置当前 Part 对 RenderItem Depth Write 状态的覆盖方式。
     void setDepthWriteMode(RenderPartStateMode mode){ m_depthWriteMode = mode;}
 protected:
-    friend class RenderItem;
+    friend class ItemManager;
 
-    /// RenderItem 内部接口。
+    /// ItemManager 内部接口。
     explicit RenderPart(RenderPartId id);
     virtual ~RenderPart();
 

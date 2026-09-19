@@ -1,4 +1,4 @@
-#ifndef RENDERPOINTCLOUD_H
+﻿#ifndef RENDERPOINTCLOUD_H
 #define RENDERPOINTCLOUD_H
 
 #include "RenderPart.h"
@@ -26,9 +26,9 @@ public:
                 const std::vector<const Light*>& lights) const override;
 
 protected:
-    friend class RenderItem;
+    friend class ItemManager;
 
-    /// RenderItem 内部接口。
+    /// ItemManager 内部接口。
     explicit RenderPointCloud(RenderPartId id);
     ~RenderPointCloud() override;
     bool drawStates(Renderer& renderer,

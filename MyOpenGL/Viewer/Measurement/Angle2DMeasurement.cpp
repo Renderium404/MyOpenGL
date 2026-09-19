@@ -425,8 +425,8 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     if (lineGeometry != 0 && viewer->resourceManager().adopt(lineGeometry) != InvalidResourceId)
     {
-        RenderPart* linePart = item->createPart();
-
+        RenderPart* linePart = viewer->measurementItemManager().createPart();
+        item->addPart(linePart);
         if (linePart != 0)
         {
             linePart->setGeometry(lineGeometry);
@@ -459,8 +459,8 @@ bool Angle2DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measurem
 
     if (arcGeometry != 0 && viewer->resourceManager().adopt(arcGeometry) != InvalidResourceId)
     {
-        RenderPart* arcPart = item->createPart();
-
+        RenderPart* arcPart = viewer->measurementItemManager().createPart();
+        item->addPart(arcPart);
         if (arcPart != 0)
         {
             arcPart->setGeometry(arcGeometry);

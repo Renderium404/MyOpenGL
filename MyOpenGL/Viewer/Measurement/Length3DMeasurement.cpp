@@ -290,8 +290,8 @@ bool Length3DMeasurement::commitResult(OpenGLViewerWidget* viewer, const Measure
         return false;
     }
 
-    RenderPart* part = item->createPart();
-
+    RenderPart* part = viewer->measurementItemManager().createPart();
+    item->addPart(part);
     if (part != 0)
         part->setGeometry(geometry);
 

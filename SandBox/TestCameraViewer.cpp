@@ -641,8 +641,8 @@ void buildTestResources()
             mainBox->setDisplayMode(DisplayMode::ShadedWithEdges);
             mainBox->setEdgeColor(QVector4D(0.05f, 0.05f, 0.05f, 1.0f));
 
-            RenderPart* part = mainBox->createPart();
-
+            RenderPart* part = itemManager().createPart();
+            mainBox->addPart(part);
             if (part != 0)
             {
                 part->setGeometry(m_cubeGeometry);
@@ -661,8 +661,8 @@ void buildTestResources()
             xMarker->transform().setScale(QVector3D(1.2f, 1.0f, 1.0f));
             xMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
 
-            RenderPart* part = xMarker->createPart();
-
+            RenderPart* part = itemManager().createPart();
+            xMarker->addPart(part);
             if (part != 0)
             {
                 part->setGeometry(m_cubeGeometry);
@@ -681,8 +681,8 @@ void buildTestResources()
             yMarker->transform().setScale(QVector3D(1.0f, 2.0f, 1.0f));
             yMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
 
-            RenderPart* part = yMarker->createPart();
-
+            RenderPart* part = itemManager().createPart();
+            yMarker->addPart(part);
             if (part != 0)
             {
                 part->setGeometry(m_cubeGeometry);
@@ -700,9 +700,9 @@ void buildTestResources()
             zMarker->transform().setPosition(QVector3D(-1.0f, 0.5f, 3.0f));
             zMarker->transform().setScale(QVector3D(1.0f, 1.0f, 2.0f));
             zMarker->setDisplayMode(DisplayMode::ShadedWithEdges);
-
-            RenderPart* part = zMarker->createPart();
-
+            
+            RenderPart* part = itemManager().createPart();
+            zMarker->addPart(part);
             if (part != 0)
             {
                 part->setGeometry(m_cubeGeometry);
@@ -724,8 +724,8 @@ void buildTestResources()
                 dice->setDisplayMode(DisplayMode::ShadedWithEdges);
                 dice->setEdgeColor(QVector4D(0.08f, 0.08f, 0.08f, 1.0f));
 
-                RenderPart* part = dice->createPart();
-
+                RenderPart* part = itemManager().createPart();
+                dice->addPart(part);
                 if (part != 0)
                 {
                     part->setGeometry(m_diceGeometry);
